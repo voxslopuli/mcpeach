@@ -88,7 +88,7 @@ func TestStopServer(t *testing.T) {
 }
 
 func TestAddServer(t *testing.T) {
-	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	cfg := config.Default()
 	h := control.NewHandler(server.NewManager(), gateway.New(cfg), cfg)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)

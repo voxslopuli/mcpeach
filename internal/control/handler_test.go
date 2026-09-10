@@ -205,7 +205,7 @@ func TestServerLogsNilManager(t *testing.T) {
 }
 
 func TestAddServer(t *testing.T) {
-	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	cfg := config.Default()
 	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
 
 	body := `{"name":"new","command":"echo","args":["hi"]}`
@@ -318,8 +318,46 @@ func TestAddServerOversizedBody(t *testing.T) {
 	}
 }
 
+func TestAddServerSaveFailLeavesConfigUnchanged(t *testing.T) {
+	cfg := config.Default()
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	// Point configPath at a path where a file blocks the parent dir creation.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	h.configPath = filepath.Join(blocker, "mcpeach.yml")
+	body := `{"name":"a","command":"echo"}`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (save fail)", rec.Code)
+	}
+	// The in-memory config must NOT contain the new server: a failed save
+	// must leave the active daemon state unchanged.
+	if _, ok := cfg.Servers["a"]; ok {
+		t.Error("server 'a' present in in-memory config after failed save (nontransactional)")
+	}
+}
+
+func TestAddServerInvalidTransport(t *testing.T) {
+	cfg := config.Default()
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	body := `{"name":"a","url":"http://x/mcp","transport":"bogus"}`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (invalid transport)", rec.Code)
+	}
+	if _, ok := cfg.Servers["a"]; ok {
+		t.Error("server 'a' present in in-memory config after rejected add")
+	}
+}
+
 func TestAddServerSaveFail(t *testing.T) {
-	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	cfg := config.Default()
 	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
 	// Point configPath at a path where a file blocks the parent dir creation.
 	blocker := filepath.Join(t.TempDir(), "blocker")

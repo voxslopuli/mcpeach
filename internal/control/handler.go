@@ -139,10 +139,15 @@ func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "server already exists")
 		return
 	}
-	if h.cfg.Servers == nil {
-		h.cfg.Servers = map[string]config.ServerConfig{}
+	// Build a candidate copy so a failed save leaves the active config
+	// untouched. The explicit map rebuild keeps mutating candidate.Servers
+	// from affecting h.cfg.Servers.
+	candidate := *h.cfg
+	candidate.Servers = make(map[string]config.ServerConfig, len(h.cfg.Servers)+1)
+	for k, v := range h.cfg.Servers {
+		candidate.Servers[k] = v
 	}
-	h.cfg.Servers[req.Name] = config.ServerConfig{
+	candidate.Servers[req.Name] = config.ServerConfig{
 		Command:   req.Command,
 		Args:      req.Args,
 		Env:       req.Env,
@@ -150,10 +155,16 @@ func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
 		Transport: req.Transport,
 		Enabled:   true,
 	}
-	if err := config.Save(h.configPath, h.cfg); err != nil {
+	if err := candidate.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := config.Save(h.configPath, &candidate); err != nil {
 		writeError(w, http.StatusInternalServerError, "save config: "+err.Error())
 		return
 	}
+	// Publish only after save succeeds.
+	h.cfg.Servers = candidate.Servers
 	writeJSON(w, http.StatusOK, map[string]any{"name": req.Name})
 }
 
