@@ -110,6 +110,7 @@ func runDaemon(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", streaming)
 	controlHandler := control.NewHandler(mgr, gw, cfg)
+	controlHandler.SetSyncTools(streaming.SyncTools)
 	ctrl := control.NewServer(config.SocketPath(), controlHandler)
 
 	if err := ctrl.Start(ctx); err != nil {

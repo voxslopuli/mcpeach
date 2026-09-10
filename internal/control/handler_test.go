@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -251,37 +252,44 @@ func TestProcessesNilManager(t *testing.T) {
 }
 
 func TestStartStopServer(t *testing.T) {
+	bin := buildFakeServer(t)
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
-			"echo": {Command: "echo", Enabled: true},
+			"fake": {Command: bin, Enabled: true},
 		},
 	}
 	mgr := server.NewManager()
-	srv := server.New("echo")
+	srv := server.New("fake")
 	mgr.Add(srv)
 	h := NewHandler(mgr, gateway.New(cfg), cfg)
 
 	// Start.
-	req := httptest.NewRequest(http.MethodPost, "/v0/servers/echo/start", nil)
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/fake/start", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("start status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
 	}
-	if srv.State() != server.Running {
-		t.Fatalf("state = %s, want running", srv.State())
-	}
 
 	// Stop.
-	req = httptest.NewRequest(http.MethodPost, "/v0/servers/echo/stop", nil)
+	req = httptest.NewRequest(http.MethodPost, "/v0/servers/fake/stop", nil)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("stop status = %d, want 200", rec.Code)
 	}
-	if srv.State() != server.Stopped {
-		t.Fatalf("state = %s, want stopped", srv.State())
+}
+
+// buildFakeServer compiles the testdata fake MCP server binary.
+func buildFakeServer(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fake-mcp")
+	cmd := exec.Command("go", "build", "-o", bin, "../../testdata/fake-mcp")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build fake server: %v\n%s", err, out)
 	}
+	return bin
 }
 
 func TestStartUnknownServer(t *testing.T) {

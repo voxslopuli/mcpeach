@@ -114,11 +114,13 @@ func (g *Gateway) GroupTools(name string) []mcp.Tool {
 // ToolFilterFunc returns an mcp-go ToolFilterFunc that exposes only the
 // aggregated tools (used to mount the gateway as an MCP server).
 func (g *Gateway) ToolFilterFunc() func(ctx context.Context, tools []mcp.Tool) []mcp.Tool {
-	allowed := map[string]bool{}
-	for _, t := range g.Tools() {
-		allowed[t.Name] = true
-	}
 	return func(_ context.Context, tools []mcp.Tool) []mcp.Tool {
+		// Read the allowed set at call time so tools registered after the
+		// streaming server was constructed are still exposed.
+		allowed := map[string]bool{}
+		for _, t := range g.Tools() {
+			allowed[t.Name] = true
+		}
 		out := make([]mcp.Tool, 0, len(tools))
 		for _, t := range tools {
 			if allowed[t.Name] {
@@ -135,6 +137,21 @@ func (g *Gateway) RegisterClient(server string, c ToolCaller) {
 	g.mu.Lock()
 	g.clients[server] = c
 	g.mu.Unlock()
+}
+
+// CloseClient closes and removes the upstream client for a server, if any.
+func (g *Gateway) CloseClient(server string) {
+	g.mu.Lock()
+	c, ok := g.clients[server]
+	if ok {
+		delete(g.clients, server)
+	}
+	g.mu.Unlock()
+	if ok {
+		if closer, ok := c.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+	}
 }
 
 // CallTool routes a call for a canonical "<server>__<tool>" name to the

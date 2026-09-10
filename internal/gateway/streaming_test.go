@@ -112,3 +112,33 @@ func TestStreamingServerToolFilter(t *testing.T) {
 		t.Errorf("gateway tools = %d, want 2", got)
 	}
 }
+
+func TestStreamingServerSyncTools(t *testing.T) {
+	g := setupTestGateway(t, mcp.Tool{Name: "t1"})
+	srv := NewStreamingServer(g, "test", "0.1.0")
+
+	// Register a new tool after construction and re-sync.
+	g.RegisterTool("a", mcp.Tool{Name: "t2"})
+	srv.SyncTools()
+
+	// The newly registered tool should now be visible via tools/list.
+	c, err := client.NewInProcessClient(srv.mcpServer)
+	if err != nil {
+		t.Fatalf("NewInProcessClient: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, err := c.Initialize(context.Background(), mcp.InitializeRequest{}); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	res, err := c.ListTools(context.Background(), mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	names := map[string]bool{}
+	for _, tool := range res.Tools {
+		names[tool.Name] = true
+	}
+	if !names["a__t1"] || !names["a__t2"] {
+		t.Errorf("tools/list after SyncTools = %v, want a__t1 and a__t2", names)
+	}
+}
