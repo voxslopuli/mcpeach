@@ -358,7 +358,7 @@ func waitForSocket(sock string, timeout time.Duration) error {
 	for time.Now().Before(deadline) {
 		conn, err := net.Dial("unix", sock)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return nil
 		}
 		time.Sleep(50 * time.Millisecond)
