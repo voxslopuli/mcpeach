@@ -155,6 +155,40 @@ func TestModelLoadServersError(t *testing.T) {
 	}
 }
 
+func TestModelEmptyServerNavigation(t *testing.T) {
+	// With no servers, navigation and start/stop should be no-ops.
+	m := NewModel(&fakeClient{})
+	m.selectNext()
+	m.selectPrev()
+	m.startSelected()
+	m.stopSelected()
+	if m.selected != 0 {
+		t.Errorf("selected = %d, want 0", m.selected)
+	}
+}
+
+func TestModelInitCmd(t *testing.T) {
+	m := NewModel(&fakeClient{})
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("Init returned nil cmd")
+	}
+	// The cmd should produce a loadServersMsg.
+	msg := cmd()
+	if _, ok := msg.(loadServersMsg); !ok {
+		t.Errorf("Init cmd produced %T, want loadServersMsg", msg)
+	}
+}
+
+func TestModelUpdateLoadServers(t *testing.T) {
+	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a"}}}
+	m := NewModel(fc)
+	m.Update(loadServersMsg{})
+	if len(m.servers) != 1 {
+		t.Errorf("servers = %d, want 1 after load", len(m.servers))
+	}
+}
+
 // errClient returns an error from every method.
 type errClient struct{}
 
