@@ -186,8 +186,15 @@ Two meta-tools exposed on the gateway (and reusable via TUI):
 - **Left**: server list (running/stopped/error, enabled/disabled).
 - **Right**: tool list with toggles, config, group membership.
 - **Bottom**: log viewport, chroma JSON highlighting, follow-mode.
-- **Keys**: start/stop, add/remove/edit (huh forms), toggle tool, view logs, **find tools** (invokes the search-and-load flow).
-- **Design pillar**: "cute and fun but not cloying" — warm peach palette, friendly-but-professional copy, no emoji spam, clear help footer.
+- **Process viewer** (alongside the log viewer): per-server live resource
+  metrics — CPU %, RSS memory, PID, uptime, and the port the server is bound
+  to (for remote/stdio servers that expose one). Uses the manager's process
+  handle (via `os.FindProcess`/`/proc` on Linux, `ps` on macOS) to sample
+  resource usage.
+- **Keys**: start/stop, add/remove/edit (huh forms), toggle tool, view logs,
+  **find tools** (invokes the search-and-load flow).
+- **Design pillar**: "cute and fun but not cloying" — warm peach palette,
+  friendly-but-professional copy, no emoji spam, clear help footer.
 
 ## Service Install
 
@@ -205,6 +212,6 @@ Two meta-tools exposed on the gateway (and reusable via TUI):
 | 4 | Control plane: unix-socket API + client | handler + client round-trip |
 | 5 | LLM tool-finder: OpenAI client, search+load meta-tools, description enrichment, validation | mock endpoint; prompt/parse; retrieval/validation |
 | 5b | Import/export: Claude Code mcp config JSON ↔ mcpeach config | round-trip, merge, conflict |
-| 6 | TUI: list/detail/toggles/log viewer/forms | model state transitions |
+| 6 | TUI: list/detail/toggles/log viewer/**process viewer**/forms | model state transitions |
 | 7 | Service install: kardianos/service | config gen |
 | 8 | Polish: theme, help, docs, final CI | — |

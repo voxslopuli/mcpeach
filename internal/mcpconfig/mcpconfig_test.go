@@ -112,6 +112,8 @@ func TestExport(t *testing.T) {
 	}
 
 	// Read back and verify the Claude Code format.
+	// nosemgrep: go.filesystem.rule-fileread — path is a t.TempDir() test file,
+	// not untrusted input.
 	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read: %v", err)
