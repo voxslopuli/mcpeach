@@ -318,15 +318,21 @@ func TestAddServerOversizedBody(t *testing.T) {
 	}
 }
 
-func TestAddServerSaveFailLeavesConfigUnchanged(t *testing.T) {
+// newHandlerWithUnwritableConfig builds a handler whose config save will fail.
+func newHandlerWithUnwritableConfig(t *testing.T) (*Handler, *config.Config) {
+	t.Helper()
 	cfg := config.Default()
 	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
-	// Point configPath at a path where a file blocks the parent dir creation.
 	blocker := filepath.Join(t.TempDir(), "blocker")
 	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	h.configPath = filepath.Join(blocker, "mcpeach.yml")
+	return h, cfg
+}
+
+func TestAddServerSaveFail(t *testing.T) {
+	h, cfg := newHandlerWithUnwritableConfig(t)
 	body := `{"name":"a","command":"echo"}`
 	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -353,24 +359,6 @@ func TestAddServerInvalidTransport(t *testing.T) {
 	}
 	if _, ok := cfg.Servers["a"]; ok {
 		t.Error("server 'a' present in in-memory config after rejected add")
-	}
-}
-
-func TestAddServerSaveFail(t *testing.T) {
-	cfg := config.Default()
-	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
-	// Point configPath at a path where a file blocks the parent dir creation.
-	blocker := filepath.Join(t.TempDir(), "blocker")
-	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	h.configPath = filepath.Join(blocker, "mcpeach.yml")
-	body := `{"name":"a","command":"echo"}`
-	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500 (save fail)", rec.Code)
 	}
 }
 
