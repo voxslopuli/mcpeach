@@ -1,18 +1,11 @@
 // Package server manages the lifecycle of MCP server subprocesses: spawn,
 // capture output, stop, restart, and state tracking. Remote (SSE/streamable
 // HTTP) connections are handled by internal/connect, not this package.
-//
-// Synchronization: the Manager's mutex protects the servers map and log rings.
-// Each Server has its own mutex protecting its lifecycle state, so a Server
-// pointer returned by Manager.Server can be used safely from multiple
-// goroutines (each method is individually thread-safe). Lock ordering:
-// Manager.mu is never held while acquiring a Server.mu.
 package server
 
 import (
 	"errors"
 	"fmt"
-	"sync"
 )
 
 // State is the lifecycle state of a server.
@@ -49,9 +42,7 @@ var validTransitions = map[State]map[State]bool{
 }
 
 // Server is a single managed MCP server (stdio subprocess or remote endpoint).
-// Its state is protected by its own mutex; each method is thread-safe.
 type Server struct {
-	mu    sync.RWMutex
 	name  string
 	state State
 }
@@ -65,16 +56,10 @@ func New(name string) *Server {
 func (s *Server) Name() string { return s.name }
 
 // State returns the current lifecycle state.
-func (s *Server) State() State {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.state
-}
+func (s *Server) State() State { return s.state }
 
 // transition moves the server to the given state, rejecting invalid jumps.
 func (s *Server) transition(to State) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !validTransitions[s.state][to] {
 		return fmt.Errorf("invalid transition %s -> %s", s.state, to)
 	}
