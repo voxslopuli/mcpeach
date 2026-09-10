@@ -153,6 +153,60 @@ func TestStopNotRunning(t *testing.T) {
 	}
 }
 
+func TestStartServerFailsToStart(t *testing.T) {
+	mgr := server.NewManager()
+	gw := gateway.New(&config.Config{})
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"bad": {Command: "/nonexistent/binary", Enabled: true},
+		},
+	}
+	h := NewHandler(mgr, gw, cfg)
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/bad/start", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (start failed)", rec.Code)
+	}
+}
+
+func TestStartServerNilManager(t *testing.T) {
+	gw := gateway.New(&config.Config{})
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"echo": {Command: "echo", Enabled: true},
+		},
+	}
+	h := NewHandler(nil, gw, cfg)
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/echo/start", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (nil manager)", rec.Code)
+	}
+}
+
+func TestEnvSlice(t *testing.T) {
+	got := envSlice(map[string]string{"A": "1", "B": "2"})
+	if len(got) != 2 {
+		t.Fatalf("envSlice = %v, want 2 entries", got)
+	}
+	seen := map[string]bool{}
+	for _, e := range got {
+		seen[e] = true
+	}
+	if !seen["A=1"] || !seen["B=2"] {
+		t.Errorf("envSlice = %v, want A=1 and B=2", got)
+	}
+}
+
+func TestSocketPath(t *testing.T) {
+	s := NewServer("/tmp/test.sock", nil)
+	if got := s.SocketPath(); got != "/tmp/test.sock" {
+		t.Errorf("SocketPath = %q, want /tmp/test.sock", got)
+	}
+}
+
 func TestUnknownRoute(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/v0/bogus", nil)
@@ -185,6 +239,8 @@ func TestServeUnixSocket(t *testing.T) {
 			},
 		},
 	}
+	// nosemgrep: http-request — "http://unix" is a unix-socket transport
+	// placeholder, not a real HTTP URL; no TLS is involved.
 	resp, err := client.Get("http://unix/v0/servers")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
