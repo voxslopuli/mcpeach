@@ -89,6 +89,38 @@ func TestMetrics(t *testing.T) {
 	}
 }
 
+func TestMetricsNilGateway(t *testing.T) {
+	h := NewHandler(server.NewManager(), nil, &config.Config{})
+	req := httptest.NewRequest(http.MethodGet, "/v0/metrics", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (nil gateway)", rec.Code)
+	}
+}
+
+func TestSetSyncTools(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"fake": {Command: buildFakeServer(t), Enabled: true},
+		},
+	}
+	mgr := server.NewManager()
+	mgr.Add(server.New("fake"))
+	h := NewHandler(mgr, gateway.New(cfg), cfg)
+	called := false
+	h.SetSyncTools(func() { called = true })
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/fake/start", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	if !called {
+		t.Error("SetSyncTools callback not invoked on start")
+	}
+}
+
 func TestLogs(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/v0/logs", nil)
