@@ -8,11 +8,12 @@ and exposes curated tool groups to clients. Written in Go.
 
 ## Commands
 
-- `make build` — build the `mcpeach` binary into `bin/`
-- `make test` — run all tests with race detector and coverage
-- `make lint` — `go vet` + golangci-lint (if installed)
-- `make fmt` — gofmt all files
-- `make install` — `go install` the binary
+- `task build` — build the `mcpeach` binary into `bin/`
+- `task test` — run all tests with race detector and coverage
+- `task lint` — `go vet` + golangci-lint (if installed)
+- `task fmt` — gofmt all files
+- `task install` — `go install` the binary
+- `task ci` — run all CI gates (vet, test, build)
 
 ## Layout
 
@@ -31,8 +32,18 @@ and exposes curated tool groups to clients. Written in Go.
 ## Conventions
 
 - Strict TDD: write a failing test first, then the minimal code to pass it.
-- All CI gates (vet, test, build) must be green before commit.
+- All CI gates (vet, test, build) must be green before commit, unless the user
+  explicitly authorizes committing with a known-failing gate.
 - One PR per phase. Conventional commits (`feat(scope):`, `fix(scope):`, `chore(scope):`).
 - Tool names canonicalized as `<server>__<tool>`.
 - Config lives at `~/.config/mcpeach/mcpeach.yml` (XDG).
 - Use `mark3labs/mcp-go` for MCP protocol; do not hand-roll the protocol.
+
+## Boundaries
+
+- Do not modify another agent's or the user's work without explicit approval.
+- Do not push or open PRs unless the user asks.
+- Do not hand-roll the MCP protocol; always use `mark3labs/mcp-go`.
+- Do not add dependencies for what a few lines of stdlib can do.
+- Do not commit secrets, tokens, or credentials.
+- Do not delete or rewrite committed history without explicit authorization.
