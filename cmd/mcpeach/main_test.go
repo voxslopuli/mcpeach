@@ -277,14 +277,17 @@ func TestRunDaemon(t *testing.T) {
 	defer cancel()
 
 	// runDaemon blocks until ctx is cancelled; run it in a goroutine and
-	// cancel after a short delay to verify it starts cleanly.
+	// cancel once the control socket is ready to verify it starts cleanly.
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- runDaemon(ctx)
 	}()
 
-	// Give it a moment to bind, then cancel.
-	time.Sleep(200 * time.Millisecond)
+	// Wait for the control socket to become connectable (bounded poll, no
+	// fixed sleep), then cancel.
+	if err := waitForSocket(config.SocketPath(), 5*time.Second); err != nil {
+		t.Fatalf("runDaemon: %v", err)
+	}
 	cancel()
 
 	select {
@@ -362,6 +365,21 @@ func bootDaemon(t *testing.T, cfg *config.Config) (context.CancelFunc, chan erro
 	errCh := make(chan error, 1)
 	go func() { errCh <- runDaemon(ctx) }()
 	return cancel, errCh
+}
+
+// waitForSocket polls for the control socket to become connectable, up to
+// timeout. Returns an error if it never becomes ready.
+func waitForSocket(sock string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.Dial("unix", sock)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("socket %s not ready within %s", sock, timeout)
 }
 
 // waitDaemonExit asserts that runDaemon returns nil shortly after cancel.
