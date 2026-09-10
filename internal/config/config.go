@@ -212,10 +212,21 @@ func (c *Config) validateToolList(groupName string, tools []string) error {
 	return nil
 }
 
+// SplitCanonical splits a canonical "<server>__<tool>" name on the FIRST
+// "__" separator, returning the server and tool parts. It returns ok=false
+// when the name has no separator or either part is empty.
+func SplitCanonical(name string) (server, tool string, ok bool) {
+	server, tool, ok = strings.Cut(name, "__")
+	if !ok || server == "" || tool == "" {
+		return "", "", false
+	}
+	return server, tool, true
+}
+
 // splitTool parses a canonical "<server>__<tool>" name.
 func splitTool(name string) (string, string, error) {
-	server, tool, ok := strings.Cut(name, "__")
-	if !ok || server == "" || tool == "" {
+	server, tool, ok := SplitCanonical(name)
+	if !ok {
 		return "", "", fmt.Errorf("invalid tool name %q (want <server>__<tool>)", name)
 	}
 	return server, tool, nil

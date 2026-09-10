@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/gateway"
@@ -247,6 +248,55 @@ func TestAddServerInvalidBody(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (invalid body)", rec.Code)
+	}
+}
+
+func TestAddServerNameDoubleUnderscore(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	body := `{"name":"a__b","command":"echo"}`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (name contains '__')", rec.Code)
+	}
+}
+
+func TestAddServerBothCommandAndURL(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	body := `{"name":"a","command":"echo","url":"http://x"}`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (both command and url)", rec.Code)
+	}
+}
+
+func TestAddServerNeitherCommandNorURL(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	body := `{"name":"a"}`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (neither command nor url)", rec.Code)
+	}
+}
+
+func TestAddServerOversizedBody(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	// Body larger than the 1 MiB MaxBytesReader limit.
+	body := `{"name":"a","command":"echo","args":["` + strings.Repeat("x", 1<<20+1) + `"]}`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (oversized body)", rec.Code)
 	}
 }
 
@@ -531,5 +581,33 @@ func TestServeUnixSocket(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestServerStartSetsTimeouts(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "mcpeach.sock")
+	srv := NewServer(sock, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := srv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	if srv.httpSrv == nil {
+		t.Fatal("httpSrv not initialized")
+	}
+	if srv.httpSrv.ReadHeaderTimeout != 10*time.Second {
+		t.Errorf("ReadHeaderTimeout = %v, want 10s", srv.httpSrv.ReadHeaderTimeout)
+	}
+	if srv.httpSrv.ReadTimeout != 30*time.Second {
+		t.Errorf("ReadTimeout = %v, want 30s", srv.httpSrv.ReadTimeout)
+	}
+	if srv.httpSrv.WriteTimeout != 30*time.Second {
+		t.Errorf("WriteTimeout = %v, want 30s", srv.httpSrv.WriteTimeout)
+	}
+	if srv.httpSrv.IdleTimeout != 60*time.Second {
+		t.Errorf("IdleTimeout = %v, want 60s", srv.httpSrv.IdleTimeout)
 	}
 }

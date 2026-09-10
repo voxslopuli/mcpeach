@@ -3,7 +3,6 @@ package permission
 
 import (
 	"sort"
-	"strings"
 
 	"github.com/mcpeach/mcpeach/internal/config"
 )
@@ -62,10 +61,11 @@ func ResolveGroup(g config.GroupConfig, catalog map[string][]string) []string {
 
 // serverOf returns the server prefix of a canonical "<server>__<tool>" name.
 func serverOf(tool string) string {
-	if i := strings.Index(tool, "__"); i >= 0 {
-		return tool[:i]
+	server, _, ok := config.SplitCanonical(tool)
+	if !ok {
+		return ""
 	}
-	return ""
+	return server
 }
 
 func contains(list []string, s string) bool {

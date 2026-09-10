@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/fang"
@@ -125,7 +126,14 @@ func runDaemon(ctx context.Context) error {
 	}
 
 	// Serve the MCP endpoint on the gateway address.
-	srv := &http.Server{Addr: cfg.Gateway.Addr, Handler: mux}
+	srv := &http.Server{
+		Addr:              cfg.Gateway.Addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	go func() {
 		<-ctx.Done()
 		_ = srv.Close()

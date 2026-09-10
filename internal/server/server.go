@@ -1,5 +1,6 @@
-// Package server manages the lifecycle of MCP server processes and remote
-// connections: spawn, capture output, stop, restart, and state tracking.
+// Package server manages the lifecycle of MCP server subprocesses: spawn,
+// capture output, stop, restart, and state tracking. Remote (SSE/streamable
+// HTTP) connections are handled by internal/connect, not this package.
 package server
 
 import (
