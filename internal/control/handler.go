@@ -45,7 +45,7 @@ type Handler struct {
 
 // NewHandler builds a control-plane handler.
 func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) http.Handler {
-	h := &Handler{mgr: mgr, gw: gw, cfg: cfg, log: obs.Default().With("pkg", "control"), res: secrets.NewResolver(nil)}
+	h := &Handler{mgr: mgr, gw: gw, cfg: cfg, log: obs.Default().With("pkg", "control"), res: secrets.NewResolver(secrets.NewKeyringStore())}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v0/servers", h.listServers)
 	mux.HandleFunc("GET /v0/tools", h.listTools)

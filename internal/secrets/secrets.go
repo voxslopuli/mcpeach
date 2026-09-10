@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/zalando/go-keyring"
 )
 
 // ErrNotFound is returned when a keychain entry does not exist.
@@ -19,6 +21,29 @@ type Store interface {
 	Get(service, user string) (string, error)
 	Set(service, user, secret string) error
 	Delete(service, user string) error
+}
+
+// KeyringStore is a Store backed by the OS keychain via go-keyring.
+type KeyringStore struct{}
+
+// NewKeyringStore returns a Store backed by the OS keychain.
+func NewKeyringStore() *KeyringStore {
+	return &KeyringStore{}
+}
+
+// Get fetches a secret from the OS keychain.
+func (k *KeyringStore) Get(service, user string) (string, error) {
+	return keyring.Get(service, user)
+}
+
+// Set stores a secret in the OS keychain.
+func (k *KeyringStore) Set(service, user, secret string) error {
+	return keyring.Set(service, user, secret)
+}
+
+// Delete removes a secret from the OS keychain.
+func (k *KeyringStore) Delete(service, user string) error {
+	return keyring.Delete(service, user)
 }
 
 // Resolver resolves secret references against the environment and keychain.
@@ -79,11 +104,15 @@ func (r *Resolver) Store(ref string, secret string) error {
 	return r.store.Set(service, user, secret)
 }
 
-// splitKeychainRef parses "service/user" into its parts.
+// splitKeychainRef parses "service/user" into its parts, requiring both.
 func splitKeychainRef(ref string) (string, string, error) {
 	idx := strings.Index(ref, "/")
 	if idx < 0 {
 		return "", "", fmt.Errorf("invalid keychain ref %q (want service/user)", ref)
 	}
-	return ref[:idx], ref[idx+1:], nil
+	service, user := ref[:idx], ref[idx+1:]
+	if service == "" || user == "" {
+		return "", "", fmt.Errorf("invalid keychain ref %q (service and user must be non-empty)", ref)
+	}
+	return service, user, nil
 }

@@ -122,3 +122,25 @@ func TestStoreKeychainNoStore(t *testing.T) {
 		t.Fatal("Store with nil store: want error, got nil")
 	}
 }
+
+func TestSplitKeychainRefEmptyParts(t *testing.T) {
+	tests := []struct {
+		ref  string
+		want bool
+	}{
+		{"service/user", false},
+		{"/user", true},
+		{"service/", true},
+		{"/", true},
+		{"no-slash", true},
+	}
+	for _, tt := range tests {
+		_, _, err := splitKeychainRef(tt.ref)
+		if tt.want && err == nil {
+			t.Errorf("splitKeychainRef(%q): want error, got nil", tt.ref)
+		}
+		if !tt.want && err != nil {
+			t.Errorf("splitKeychainRef(%q): want nil, got %v", tt.ref, err)
+		}
+	}
+}
