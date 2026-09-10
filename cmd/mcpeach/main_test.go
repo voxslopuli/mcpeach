@@ -122,7 +122,7 @@ func TestExportCmdRunE(t *testing.T) {
 	}
 
 	// Verify the file was written and contains the server.
-	b, err := os.ReadFile(dst) // nosemgrep: go.filesystem.rule-fileread — dst is a t.TempDir() path (trusted test input)
+	b, err := os.ReadFile(dst) // nosemgrep: Semgrep_go_filesystem_rule-fileread — dst is a t.TempDir() path (trusted test input)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
