@@ -3,12 +3,14 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -205,7 +207,7 @@ func TestServerLogsNilManager(t *testing.T) {
 }
 
 func TestAddServer(t *testing.T) {
-	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	cfg := config.Default()
 	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
 
 	body := `{"name":"new","command":"echo","args":["hi"]}`
@@ -217,6 +219,39 @@ func TestAddServer(t *testing.T) {
 	}
 	if _, ok := cfg.Servers["new"]; !ok {
 		t.Error("server 'new' not added to config")
+	}
+}
+
+func TestAddServerConcurrent(t *testing.T) {
+	cfg := config.Default()
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	h.configPath = filepath.Join(t.TempDir(), "mcpeach.yml")
+
+	const n = 20
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			name := fmt.Sprintf("srv-%d", i)
+			body := fmt.Sprintf(`{"name":%q,"command":"echo"}`, name)
+			req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Errorf("add %s: status = %d, want 200 (body %s)", name, rec.Code, rec.Body.String())
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if len(cfg.Servers) != n {
+		t.Fatalf("Servers = %d, want %d (lost updates)", len(cfg.Servers), n)
+	}
+	for i := 0; i < n; i++ {
+		if _, ok := cfg.Servers[fmt.Sprintf("srv-%d", i)]; !ok {
+			t.Errorf("server srv-%d missing after concurrent adds", i)
+		}
 	}
 }
 
@@ -318,21 +353,47 @@ func TestAddServerOversizedBody(t *testing.T) {
 	}
 }
 
-func TestAddServerSaveFail(t *testing.T) {
-	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+// newHandlerWithUnwritableConfig builds a handler whose config save will fail.
+func newHandlerWithUnwritableConfig(t *testing.T) (*Handler, *config.Config) {
+	t.Helper()
+	cfg := config.Default()
 	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
-	// Point configPath at a path where a file blocks the parent dir creation.
 	blocker := filepath.Join(t.TempDir(), "blocker")
 	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	h.configPath = filepath.Join(blocker, "mcpeach.yml")
+	return h, cfg
+}
+
+func TestAddServerSaveFail(t *testing.T) {
+	h, cfg := newHandlerWithUnwritableConfig(t)
 	body := `{"name":"a","command":"echo"}`
 	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500 (save fail)", rec.Code)
+	}
+	// The in-memory config must NOT contain the new server: a failed save
+	// must leave the active daemon state unchanged.
+	if _, ok := cfg.Servers["a"]; ok {
+		t.Error("server 'a' present in in-memory config after failed save (nontransactional)")
+	}
+}
+
+func TestAddServerInvalidTransport(t *testing.T) {
+	cfg := config.Default()
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	body := `{"name":"a","url":"http://x/mcp","transport":"bogus"}`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (invalid transport)", rec.Code)
+	}
+	if _, ok := cfg.Servers["a"]; ok {
+		t.Error("server 'a' present in in-memory config after rejected add")
 	}
 }
 

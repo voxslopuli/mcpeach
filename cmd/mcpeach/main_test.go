@@ -282,6 +282,28 @@ func TestRunDaemon(t *testing.T) {
 	}
 }
 
+func TestRunDaemonInvalidConfig(t *testing.T) {
+	// A config that fails structural validation (a group referencing a missing
+	// server) must make runDaemon return an error BEFORE any listener or
+	// subprocess starts. Without the Validate() call, runDaemon would start
+	// cleanly because it never inspects groups.
+	setupTestConfig(t, func(cfg *config.Config) {
+		cfg.Groups = map[string]config.GroupConfig{
+			"g": {IncludedServers: []string{"missing"}},
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := runDaemon(ctx)
+	if err == nil {
+		t.Fatal("runDaemon with invalid config: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "validate config") {
+		t.Errorf("runDaemon error = %q, want it to mention 'validate config'", err)
+	}
+}
+
 func TestRunDaemonNoConfig(t *testing.T) {
 	// No config file → runDaemon should return a load error.
 	dir := t.TempDir()

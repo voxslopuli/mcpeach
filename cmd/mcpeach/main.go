@@ -63,6 +63,9 @@ func runDaemon(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("validate config: %w", err)
+	}
 
 	mgr := server.NewManager()
 	res := secrets.NewResolver(secrets.NewKeyringStore())
