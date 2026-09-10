@@ -104,6 +104,20 @@ func (r *Resolver) Store(ref string, secret string) error {
 	return r.store.Set(service, user, secret)
 }
 
+// ResolveEnv resolves a map of environment variables into a []string of
+// "KEY=value" entries, resolving each value through the secret chain.
+func (r *Resolver) ResolveEnv(env map[string]string) ([]string, error) {
+	out := make([]string, 0, len(env))
+	for k, v := range env {
+		resolved, err := r.Resolve(v)
+		if err != nil {
+			return nil, fmt.Errorf("env %s: %w", k, err)
+		}
+		out = append(out, k+"="+resolved)
+	}
+	return out, nil
+}
+
 // splitKeychainRef parses "service/user" into its parts, requiring both.
 func splitKeychainRef(ref string) (string, string, error) {
 	idx := strings.Index(ref, "/")

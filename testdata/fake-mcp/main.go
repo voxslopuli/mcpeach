@@ -10,8 +10,9 @@ import (
 )
 
 func main() {
-	// Emit a JSON log line to stderr (the manager captures stderr).
-	fmt.Fprintln(os.Stderr, `{"level":"info","msg":"fake-mcp started","time":"`+time.Now().Format(time.RFC3339)+`"}`)
+	// Emit a JSON log line to stderr (the manager captures stderr), including
+	// any args so tests can verify they reach the subprocess.
+	fmt.Fprintf(os.Stderr, `{"level":"info","msg":"fake-mcp started","args":%q,"time":%q}`+"\n", os.Args[1:], time.Now().Format(time.RFC3339))
 	// Block until killed.
 	select {}
 }

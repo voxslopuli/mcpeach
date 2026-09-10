@@ -120,7 +120,7 @@ func TestClientError(t *testing.T) {
 	// Point at a server that returns 404 for everything.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "nope"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "nope"})
 	}))
 	t.Cleanup(srv.Close)
 	c := New(srv.URL)

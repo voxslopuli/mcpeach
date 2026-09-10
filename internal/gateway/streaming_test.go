@@ -46,7 +46,7 @@ func TestStreamingServerServesHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /mcp: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		t.Fatalf("GET /mcp = 404, want mounted handler")
 	}
@@ -62,7 +62,7 @@ func TestStreamingServerRejectsNonMCPPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /bogus: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("GET /bogus = %d, want 404", resp.StatusCode)
 	}
@@ -82,7 +82,7 @@ func TestStreamingServerExposesTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewInProcessClient: %v", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	if _, err := c.Initialize(context.Background(), mcp.InitializeRequest{}); err != nil {
 		t.Fatalf("Initialize: %v", err)

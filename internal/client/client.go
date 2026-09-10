@@ -121,12 +121,12 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, ou
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var e struct {
 			Error string `json:"error"`
 		}
-		json.NewDecoder(resp.Body).Decode(&e)
+		_ = json.NewDecoder(resp.Body).Decode(&e)
 		if e.Error != "" {
 			return fmt.Errorf("%s %s: %s", method, path, e.Error)
 		}

@@ -159,6 +159,9 @@ func (c *Config) Validate() error {
 }
 
 func validateServer(name string, s ServerConfig) error {
+	if strings.Contains(name, "__") {
+		return fmt.Errorf("server %q: name cannot contain '__' (reserved for tool canonicalization)", name)
+	}
 	hasCmd := s.Command != ""
 	hasURL := s.URL != ""
 	if !hasCmd && !hasURL {
