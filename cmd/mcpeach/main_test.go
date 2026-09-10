@@ -17,6 +17,7 @@ import (
 	"github.com/mcpeach/mcpeach/internal/client"
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/service"
+	"github.com/spf13/cobra"
 )
 
 func TestStatusString(t *testing.T) {
@@ -374,42 +375,44 @@ func TestRunDaemonRemoteServer(t *testing.T) {
 	}
 }
 
-func TestImportCmdRunEError(t *testing.T) {
-	// No config file -> import RunE should return a load error.
+// runEWithNoConfig asserts that running cmd with args against an empty XDG
+// config dir returns a load error.
+func runEWithNoConfig(t *testing.T, cmd *cobra.Command, args []string) {
+	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
-	cmd := importCmd()
-	if err := cmd.RunE(cmd, []string{filepath.Join(dir, "mcp.json")}); err == nil {
-		t.Fatal("import RunE with no config: want error, got nil")
+	if err := cmd.RunE(cmd, args); err == nil {
+		t.Fatal("RunE with no config: want error, got nil")
 	}
+}
+
+// runEWithFactoryError asserts that running cmd with args returns an error
+// when the service manager factory fails.
+func runEWithFactoryError(t *testing.T, cmd *cobra.Command, args []string) {
+	t.Helper()
+	serviceManagerFactory = func() (serviceManager, error) { return nil, fmt.Errorf("boom") }
+	defer func() { serviceManagerFactory = newServiceManager }()
+	if err := cmd.RunE(cmd, args); err == nil {
+		t.Fatal("RunE with factory error: want error, got nil")
+	}
+}
+
+func TestImportCmdRunEError(t *testing.T) {
+	// No config file -> import RunE should return a load error.
+	runEWithNoConfig(t, importCmd(), []string{filepath.Join(t.TempDir(), "mcp.json")})
 }
 
 func TestExportCmdRunEError(t *testing.T) {
 	// No config file -> export RunE should return a load error.
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	cmd := exportCmd()
-	if err := cmd.RunE(cmd, []string{filepath.Join(dir, "out.json")}); err == nil {
-		t.Fatal("export RunE with no config: want error, got nil")
-	}
+	runEWithNoConfig(t, exportCmd(), []string{filepath.Join(t.TempDir(), "out.json")})
 }
 
 func TestUninstallCmdRunEError(t *testing.T) {
-	serviceManagerFactory = func() (serviceManager, error) { return nil, fmt.Errorf("boom") }
-	defer func() { serviceManagerFactory = newServiceManager }()
-	cmd := uninstallCmd()
-	if err := cmd.RunE(cmd, nil); err == nil {
-		t.Fatal("uninstall RunE with factory error: want error, got nil")
-	}
+	runEWithFactoryError(t, uninstallCmd(), nil)
 }
 
 func TestStatusCmdRunEError(t *testing.T) {
-	serviceManagerFactory = func() (serviceManager, error) { return nil, fmt.Errorf("boom") }
-	defer func() { serviceManagerFactory = newServiceManager }()
-	cmd := statusCmd()
-	if err := cmd.RunE(cmd, nil); err == nil {
-		t.Fatal("status RunE with factory error: want error, got nil")
-	}
+	runEWithFactoryError(t, statusCmd(), nil)
 }
 
 func TestRunDaemonPopulatesGateway(t *testing.T) {
