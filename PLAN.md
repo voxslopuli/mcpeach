@@ -239,6 +239,8 @@ Two meta-tools exposed on the gateway (and reusable via TUI):
 
 **Future (post-v1):** Well's **skill layer** — learned query→tool associations that narrow the candidate set before the LLM sees options. This is the compounding-efficiency play; not in v1.
 
+> **Status: not yet exposed.** The `internal/llm` Finder (`FindTools`) is built and unit-tested but is not wired into the gateway — the `mcpeach__search_tools` / `mcpeach__load_tools` meta-tools are not registered. Wiring is deferred to a follow-up PR; this section documents the intended architecture only.
+
 ## TUI
 
 - **Left**: server list (running/stopped/error, enabled/disabled).
