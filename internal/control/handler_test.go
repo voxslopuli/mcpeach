@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/gateway"
 	"github.com/mcpeach/mcpeach/internal/secrets"
@@ -602,29 +601,10 @@ func TestStartUnknownServer(t *testing.T) {
 	}
 }
 
-// startRemoteMCP spins up a real streamable-http MCP server exposing an echo
-// tool and returns its /mcp URL. It is closed when the test ends.
-func startRemoteMCP(t *testing.T) string {
-	t.Helper()
-	ms := mcpserver.NewMCPServer("remote", "1.0.0")
-	ms.AddTool(mcp.NewTool("echo", mcp.WithString("text", mcp.Required())),
-		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return mcp.NewToolResultText(req.GetString("text", "")), nil
-		})
-	httpSrv := mcpserver.NewStreamableHTTPServer(ms)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Listen: %v", err)
-	}
-	go func() { _ = http.Serve(ln, httpSrv) }()
-	t.Cleanup(func() { _ = ln.Close() })
-	return "http://" + ln.Addr().String() + "/mcp"
-}
-
 func TestStartRemoteServer(t *testing.T) {
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
-			"remote": {URL: startRemoteMCP(t), Transport: "streamable-http", Enabled: true},
+			"remote": {URL: testutil.StartRemoteMCP(t) + "/mcp", Transport: "streamable-http", Enabled: true},
 		},
 	}
 	mgr := server.NewManager()
