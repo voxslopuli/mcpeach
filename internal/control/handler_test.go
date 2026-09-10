@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/gateway"
 	"github.com/mcpeach/mcpeach/internal/secrets"
@@ -601,18 +602,74 @@ func TestStartUnknownServer(t *testing.T) {
 	}
 }
 
-func TestStartServerNoCommand(t *testing.T) {
+// startRemoteMCP spins up a real streamable-http MCP server exposing an echo
+// tool and returns its /mcp URL. It is closed when the test ends.
+func startRemoteMCP(t *testing.T) string {
+	t.Helper()
+	ms := mcpserver.NewMCPServer("remote", "1.0.0")
+	ms.AddTool(mcp.NewTool("echo", mcp.WithString("text", mcp.Required())),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return mcp.NewToolResultText(req.GetString("text", "")), nil
+		})
+	httpSrv := mcpserver.NewStreamableHTTPServer(ms)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	go func() { _ = http.Serve(ln, httpSrv) }()
+	t.Cleanup(func() { _ = ln.Close() })
+	return "http://" + ln.Addr().String() + "/mcp"
+}
+
+func TestStartRemoteServer(t *testing.T) {
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
-			"remote": {URL: "http://x", Enabled: true},
+			"remote": {URL: startRemoteMCP(t), Transport: "streamable-http", Enabled: true},
+		},
+	}
+	mgr := server.NewManager()
+	gw := gateway.New(cfg)
+	h := NewHandler(mgr, gw, cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/remote/start", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	found := false
+	for _, tool := range gw.Tools() {
+		if tool.Name == "remote__echo" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Tools() = %v, want remote__echo", gw.Tools())
+	}
+}
+
+func TestStartRemoteServerUnknown(t *testing.T) {
+	h := newTestHandler(t)
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/nope/start", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestStartRemoteServerBadURL(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"remote": {URL: "http://127.0.0.1:1/mcp", Transport: "streamable-http", Enabled: true},
 		},
 	}
 	h := newHandlerWithConfig(t, cfg)
 	req := httptest.NewRequest(http.MethodPost, "/v0/servers/remote/start", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404 (no command)", rec.Code)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (connect failed)", rec.Code)
 	}
 }
 
