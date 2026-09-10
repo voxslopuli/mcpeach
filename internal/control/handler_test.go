@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mcpeach/mcpeach/internal/config"
@@ -147,6 +148,59 @@ func TestServerLogsNilManager(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500 (nil manager)", rec.Code)
+	}
+}
+
+func TestAddServer(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+
+	body := `{"name":"new","command":"echo","args":["hi"]}`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	if _, ok := cfg.Servers["new"]; !ok {
+		t.Error("server 'new' not added to config")
+	}
+}
+
+func TestAddServerDuplicate(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{"a": {}}}
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+
+	body := `{"name":"a","command":"echo"}`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (duplicate)", rec.Code)
+	}
+}
+
+func TestAddServerNoName(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+
+	body := `{"command":"echo"}`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (no name)", rec.Code)
+	}
+}
+
+func TestAddServerNilConfig(t *testing.T) {
+	h := NewHandler(server.NewManager(), gateway.New(&config.Config{}), nil)
+	body := `{"name":"a","command":"echo"}`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (nil config)", rec.Code)
 	}
 }
 

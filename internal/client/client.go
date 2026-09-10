@@ -3,6 +3,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -40,6 +41,16 @@ func NewUnix(sock string) *Client {
 type ServerInfo struct {
 	Name  string `json:"name"`
 	State string `json:"state"`
+}
+
+// AddServerRequest is the POST /v0/servers request body.
+type AddServerRequest struct {
+	Name      string            `json:"name"`
+	Command   string            `json:"command,omitempty"`
+	Args      []string          `json:"args,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Transport string            `json:"transport,omitempty"`
 }
 
 // ListServers returns the configured servers.
@@ -83,6 +94,20 @@ func (c *Client) StartServer(ctx context.Context, name string) error {
 // StopServer stops a server by name.
 func (c *Client) StopServer(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodPost, "/v0/servers/"+url.PathEscape(name)+"/stop", nil, nil)
+}
+
+// AddServer adds a new server to the config.
+func (c *Client) AddServer(ctx context.Context, name, command string, args []string, env map[string]string) error {
+	body, err := json.Marshal(AddServerRequest{
+		Name:    name,
+		Command: command,
+		Args:    args,
+		Env:     env,
+	})
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPost, "/v0/servers", bytes.NewReader(body), nil)
 }
 
 // do performs an HTTP request and decodes the JSON response, returning an

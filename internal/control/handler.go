@@ -35,20 +35,33 @@ type ListToolsResponse struct {
 	Tools []string `json:"tools"`
 }
 
-// Handler serves the control-plane API.
-type Handler struct {
-	mgr *server.Manager
-	gw  *gateway.Gateway
-	cfg *config.Config
-	log *obs.Logger
-	res *secrets.Resolver
+// AddServerRequest is the POST /v0/servers request body.
+type AddServerRequest struct {
+	Name      string            `json:"name"`
+	Command   string            `json:"command,omitempty"`
+	Args      []string          `json:"args,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Transport string            `json:"transport,omitempty"`
 }
 
-// NewHandler builds a control-plane handler.
+// Handler serves the control-plane API.
+type Handler struct {
+	mgr        *server.Manager
+	gw         *gateway.Gateway
+	cfg        *config.Config
+	configPath string
+	log        *obs.Logger
+	res        *secrets.Resolver
+}
+
+// NewHandler builds a control-plane handler. The config is saved to
+// config.Path() when servers are added.
 func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) http.Handler {
-	h := &Handler{mgr: mgr, gw: gw, cfg: cfg, log: obs.Default().With("pkg", "control"), res: secrets.NewResolver(secrets.NewKeyringStore())}
+	h := &Handler{mgr: mgr, gw: gw, cfg: cfg, configPath: config.Path(), log: obs.Default().With("pkg", "control"), res: secrets.NewResolver(secrets.NewKeyringStore())}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v0/servers", h.listServers)
+	mux.HandleFunc("POST /v0/servers", h.addServer)
 	mux.HandleFunc("GET /v0/tools", h.listTools)
 	mux.HandleFunc("GET /v0/metrics", h.metrics)
 	mux.HandleFunc("GET /v0/logs", h.logs)
@@ -74,6 +87,43 @@ func (h *Handler) listServers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// addServer adds a new server to the config and persists it.
+func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
+	if h.cfg == nil {
+		writeError(w, http.StatusInternalServerError, "config not available")
+		return
+	}
+	var req AddServerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if _, exists := h.cfg.Servers[req.Name]; exists {
+		writeError(w, http.StatusConflict, "server already exists")
+		return
+	}
+	if h.cfg.Servers == nil {
+		h.cfg.Servers = map[string]config.ServerConfig{}
+	}
+	h.cfg.Servers[req.Name] = config.ServerConfig{
+		Command:   req.Command,
+		Args:      req.Args,
+		Env:       req.Env,
+		URL:       req.URL,
+		Transport: req.Transport,
+		Enabled:   true,
+	}
+	if err := config.Save(h.configPath, h.cfg); err != nil {
+		writeError(w, http.StatusInternalServerError, "save config: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"name": req.Name})
 }
 
 func (h *Handler) listTools(w http.ResponseWriter, r *http.Request) {

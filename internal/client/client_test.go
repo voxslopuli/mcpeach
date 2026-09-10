@@ -45,6 +45,32 @@ func TestListTools(t *testing.T) {
 	}
 }
 
+func TestServerLogs(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{"a": {}}}
+	mgr := server.NewManager()
+	mgr.Add(server.New("a"))
+	h := control.NewHandler(mgr, gateway.New(cfg), cfg)
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := New(srv.URL)
+
+	lines, err := c.ServerLogs(context.Background(), "a")
+	if err != nil {
+		t.Fatalf("ServerLogs: %v", err)
+	}
+	if lines == nil {
+		t.Fatal("ServerLogs returned nil")
+	}
+}
+
+func TestServerLogsUnknown(t *testing.T) {
+	c := newTestClient(t)
+	_, err := c.ServerLogs(context.Background(), "nope")
+	if err == nil {
+		t.Fatal("ServerLogs unknown: want error, got nil")
+	}
+}
+
 func TestStartServer(t *testing.T) {
 	c := newTestClient(t)
 	err := c.StartServer(context.Background(), "echo")
@@ -58,6 +84,35 @@ func TestStopServer(t *testing.T) {
 	err := c.StopServer(context.Background(), "echo")
 	if err == nil {
 		t.Fatal("StopServer unknown: want error, got nil")
+	}
+}
+
+func TestAddServer(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	h := control.NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := New(srv.URL)
+
+	err := c.AddServer(context.Background(), "new", "echo", []string{"hi"}, nil)
+	if err != nil {
+		t.Fatalf("AddServer: %v", err)
+	}
+	if _, ok := cfg.Servers["new"]; !ok {
+		t.Error("server 'new' not added to config")
+	}
+}
+
+func TestAddServerDuplicate(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{"a": {}}}
+	h := control.NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := New(srv.URL)
+
+	err := c.AddServer(context.Background(), "a", "echo", nil, nil)
+	if err == nil {
+		t.Fatal("AddServer duplicate: want error, got nil")
 	}
 }
 

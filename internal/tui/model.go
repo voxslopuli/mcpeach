@@ -20,6 +20,7 @@ type clientIface interface {
 	ServerLogs(ctx context.Context, name string) ([]string, error)
 	StartServer(ctx context.Context, name string) error
 	StopServer(ctx context.Context, name string) error
+	AddServer(ctx context.Context, name, command string, args []string, env map[string]string) error
 }
 
 // Model is the Bubble Tea model for the mcpeach TUI.
@@ -32,6 +33,7 @@ type Model struct {
 	showLogs  bool
 	showTools bool
 	showForm  bool
+	form      *addServerForm
 	width     int
 	height    int
 }
@@ -67,6 +69,11 @@ type logsLoadedMsg struct {
 // toolsLoadedMsg carries the result of a ListTools call.
 type toolsLoadedMsg struct {
 	tools []string
+}
+
+// addServerDoneMsg is sent after an add-server form submits.
+type addServerDoneMsg struct {
+	err error
 }
 
 // loadLogsCmd returns a tea.Cmd that fetches logs for the named server. The
@@ -196,6 +203,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case toolsLoadedMsg:
 		m.tools = msg.tools
 		return m, nil
+	case addServerDoneMsg:
+		m.showForm = false
+		if msg.err == nil {
+			// Refresh the server list after a successful add.
+			return m, m.loadServersCmd()
+		}
+		return m, nil
 	case tea.KeyPressMsg:
 		switch msg.Code {
 		case tea.KeyUp:
@@ -218,6 +232,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case 'a':
 			m.showForm = !m.showForm
+			if m.showForm {
+				m.form = &addServerForm{}
+				return m, m.runAddServerForm()
+			}
 		case uv.KeyEscape, 'q':
 			// If a sub-view is active, esc/q toggles back to the list.
 			if m.showLogs || m.showTools || m.showForm {
@@ -242,7 +260,8 @@ func (m *Model) View() tea.View {
 	b.WriteString("mcpeach\n\n")
 
 	if m.showForm {
-		b.WriteString("Add server form (coming soon)\n\n")
+		b.WriteString("Add server form\n\n")
+		b.WriteString("Fill in the fields and press enter to submit.\n")
 		b.WriteString("esc/q back\n")
 		return tea.NewView(b.String())
 	}
