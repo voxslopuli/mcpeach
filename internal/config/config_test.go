@@ -67,39 +67,47 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	if got.Gateway.Addr != c.Gateway.Addr {
-		t.Errorf("gateway addr = %q, want %q", got.Gateway.Addr, c.Gateway.Addr)
-	}
-	if got.LLM.Model != c.LLM.Model {
-		t.Errorf("llm model = %q, want %q", got.LLM.Model, c.LLM.Model)
-	}
-	if len(got.Servers) != 2 {
-		t.Fatalf("servers = %d, want 2", len(got.Servers))
-	}
-	gh := got.Servers["github"]
-	if gh.Command != "npx" || len(gh.Args) != 2 || gh.Args[0] != "-y" {
-		t.Errorf("github server = %+v, want npx -y", gh)
-	}
-	if gh.Env["GITHUB_PERSONAL_ACCESS_TOKEN"] != "secret" {
-		t.Errorf("github env token = %q, want secret", gh.Env["GITHUB_PERSONAL_ACCESS_TOKEN"])
-	}
-	if gh.Tools.Mode != "allow" || len(gh.Tools.List) != 1 {
-		t.Errorf("github tools = %+v, want allow [create_or_update_file]", gh.Tools)
-	}
-	c7 := got.Servers["context7"]
-	if c7.URL != "https://mcp.context7.com/mcp" || c7.Transport != "streamable-http" {
-		t.Errorf("context7 server = %+v, want streamable-http", c7)
-	}
-	if len(got.Groups) != 1 {
-		t.Fatalf("groups = %d, want 1", len(got.Groups))
-	}
-	grp := got.Groups["claude-tools"]
-	if grp.Description != "Curated set for Claude Desktop" {
-		t.Errorf("group description = %q", grp.Description)
-	}
-	if len(grp.IncludedServers) != 1 || grp.IncludedServers[0] != "github" {
-		t.Errorf("group included_servers = %v", grp.IncludedServers)
-	}
+	t.Run("gateway", func(t *testing.T) {
+		if got.Gateway.Addr != c.Gateway.Addr {
+			t.Errorf("gateway addr = %q, want %q", got.Gateway.Addr, c.Gateway.Addr)
+		}
+	})
+	t.Run("llm", func(t *testing.T) {
+		if got.LLM.Model != c.LLM.Model {
+			t.Errorf("llm model = %q, want %q", got.LLM.Model, c.LLM.Model)
+		}
+	})
+	t.Run("servers", func(t *testing.T) {
+		if len(got.Servers) != 2 {
+			t.Fatalf("servers = %d, want 2", len(got.Servers))
+		}
+		gh := got.Servers["github"]
+		if gh.Command != "npx" || len(gh.Args) != 2 || gh.Args[0] != "-y" {
+			t.Errorf("github server = %+v, want npx -y", gh)
+		}
+		if gh.Env["GITHUB_PERSONAL_ACCESS_TOKEN"] != "secret" {
+			t.Errorf("github env token = %q, want secret", gh.Env["GITHUB_PERSONAL_ACCESS_TOKEN"])
+		}
+		if gh.Tools.Mode != "allow" || len(gh.Tools.List) != 1 {
+			t.Errorf("github tools = %+v, want allow [create_or_update_file]", gh.Tools)
+		}
+		c7 := got.Servers["context7"]
+		if c7.URL != "https://mcp.context7.com/mcp" || c7.Transport != "streamable-http" {
+			t.Errorf("context7 server = %+v, want streamable-http", c7)
+		}
+	})
+	t.Run("groups", func(t *testing.T) {
+		if len(got.Groups) != 1 {
+			t.Fatalf("groups = %d, want 1", len(got.Groups))
+		}
+		grp := got.Groups["claude-tools"]
+		if grp.Description != "Curated set for Claude Desktop" {
+			t.Errorf("group description = %q", grp.Description)
+		}
+		if len(grp.IncludedServers) != 1 || grp.IncludedServers[0] != "github" {
+			t.Errorf("group included_servers = %v", grp.IncludedServers)
+		}
+	})
 }
 
 func TestLoadMissingFile(t *testing.T) {
