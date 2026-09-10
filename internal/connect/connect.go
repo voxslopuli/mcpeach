@@ -15,13 +15,14 @@ import (
 
 // Connect establishes a client to the configured server and returns a
 // ToolCaller plus the discovered tools. The caller owns closing the client.
-func Connect(ctx context.Context, sc config.ServerConfig) (gateway.ToolCaller, []mcp.Tool, error) {
+// env is passed to stdio subprocesses.
+func Connect(ctx context.Context, sc config.ServerConfig, env []string) (gateway.ToolCaller, []mcp.Tool, error) {
 	var c *client.Client
 	var err error
 
 	switch {
 	case sc.Command != "":
-		c, err = client.NewStdioMCPClient(sc.Command, nil, sc.Args...)
+		c, err = client.NewStdioMCPClient(sc.Command, env, sc.Args...)
 	case sc.URL != "":
 		switch sc.Transport {
 		case "sse":

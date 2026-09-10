@@ -102,6 +102,63 @@ func TestManagerCapturesOutput(t *testing.T) {
 	}
 }
 
+func TestManagerCaptureLogs(t *testing.T) {
+	m := NewManager()
+	m.Add(New("fake"))
+
+	// Feed a line into the ring via CaptureLogs and verify it's retrievable.
+	m.CaptureLogs("fake", strings.NewReader("hello\n"))
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(m.Logs("fake")) > 0 {
+			if m.Logs("fake")[0] != "hello" {
+				t.Fatalf("log = %q, want hello", m.Logs("fake")[0])
+			}
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("CaptureLogs did not feed the ring")
+}
+
+func TestManagerCaptureLogsUnknown(t *testing.T) {
+	// Capturing logs for an unknown server should be a no-op (no panic).
+	m := NewManager()
+	m.CaptureLogs("nope", strings.NewReader("x\n"))
+}
+
+func TestManagerServer(t *testing.T) {
+	m := NewManager()
+	m.Add(New("fake"))
+	if s := m.Server("fake"); s == nil {
+		t.Fatal("Server(fake) = nil, want non-nil")
+	}
+	if s := m.Server("nope"); s != nil {
+		t.Fatalf("Server(nope) = %v, want nil", s)
+	}
+}
+
+func TestManagerPID(t *testing.T) {
+	bin := buildFakeServer(t)
+	m := NewManager()
+	m.Add(New("fake"))
+
+	// Not running → PID 0.
+	if pid := m.PID("fake"); pid != 0 {
+		t.Fatalf("PID not running = %d, want 0", pid)
+	}
+
+	if err := m.Start(context.Background(), "fake", bin, nil, nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = m.Stop("fake") }()
+
+	if pid := m.PID("fake"); pid == 0 {
+		t.Fatal("PID running = 0, want non-zero")
+	}
+}
+
 func TestManagerPassesArgs(t *testing.T) {
 	bin := buildFakeServer(t)
 	m := NewManager()

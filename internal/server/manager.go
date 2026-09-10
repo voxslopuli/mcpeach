@@ -128,6 +128,19 @@ func (m *Manager) Logs(name string) []string {
 	return ring.Lines()
 }
 
+// CaptureLogs feeds lines from r into the named server's log ring. It is used
+// when the process is owned by an external client (e.g. the connect layer's
+// mcp-go stdio client) rather than spawned by the manager.
+func (m *Manager) CaptureLogs(name string, r io.Reader) {
+	m.mu.Lock()
+	ring, ok := m.logs[name]
+	m.mu.Unlock()
+	if !ok {
+		return
+	}
+	go scanLines(r, ring)
+}
+
 // PID returns the PID of a running server, or 0 if not running/unknown.
 func (m *Manager) PID(name string) int32 {
 	m.mu.Lock()

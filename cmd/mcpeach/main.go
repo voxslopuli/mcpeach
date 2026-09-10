@@ -8,9 +8,11 @@ import (
 	"os"
 
 	"github.com/charmbracelet/fang"
+	"github.com/mark3labs/mcp-go/client"
 	"github.com/spf13/cobra"
 
 	"github.com/mcpeach/mcpeach/internal/config"
+	"github.com/mcpeach/mcpeach/internal/connect"
 	"github.com/mcpeach/mcpeach/internal/control"
 	"github.com/mcpeach/mcpeach/internal/gateway"
 	"github.com/mcpeach/mcpeach/internal/secrets"
@@ -59,20 +61,49 @@ func runDaemon(ctx context.Context) error {
 
 	mgr := server.NewManager()
 	res := secrets.NewResolver(secrets.NewKeyringStore())
+	gw := gateway.New(cfg)
 	for name, sc := range cfg.Servers {
 		mgr.Add(server.New(name))
-		if sc.Enabled {
-			env, err := res.ResolveEnv(sc.Env)
+		if !sc.Enabled {
+			continue
+		}
+		env, err := res.ResolveEnv(sc.Env)
+		if err != nil {
+			return fmt.Errorf("resolve env for %s: %w", name, err)
+		}
+		// For stdio servers, the connect layer owns the subprocess (via mcp-go's
+		// stdio client) so the gateway can route calls. Feed its stderr into the
+		// manager's log ring so the TUI log viewer still works.
+		if sc.Command != "" {
+			caller, tools, err := connect.Connect(ctx, sc, env)
 			if err != nil {
-				return fmt.Errorf("resolve env for %s: %w", name, err)
+				return fmt.Errorf("connect %s: %w", name, err)
 			}
-			if err := mgr.Start(ctx, name, sc.Command, sc.Args, env); err != nil {
-				return fmt.Errorf("start %s: %w", name, err)
+			gw.RegisterClient(name, caller)
+			for _, t := range tools {
+				gw.RegisterTool(name, t)
+			}
+			if c, ok := caller.(interface{ Close() error }); ok {
+				defer func() { _ = c.Close() }()
+			}
+			if c, ok := caller.(*client.Client); ok {
+				if stderr, ok := client.GetStderr(c); ok {
+					mgr.CaptureLogs(name, stderr)
+				}
+			}
+		} else {
+			// Remote server: connect and register.
+			caller, tools, err := connect.Connect(ctx, sc, nil)
+			if err != nil {
+				return fmt.Errorf("connect %s: %w", name, err)
+			}
+			gw.RegisterClient(name, caller)
+			for _, t := range tools {
+				gw.RegisterTool(name, t)
 			}
 		}
 	}
 
-	gw := gateway.New(cfg)
 	streaming := gateway.NewStreamingServer(gw, cfg.Gateway.Name, cfg.Gateway.Version)
 
 	// Mount the MCP streaming endpoint and the control plane.

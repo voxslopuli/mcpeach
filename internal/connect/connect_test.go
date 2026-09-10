@@ -40,7 +40,7 @@ func TestDiscoverTools(t *testing.T) {
 func TestConnectStdio(t *testing.T) {
 	// A stdio server that doesn't exist should return an error.
 	sc := config.ServerConfig{Command: "/nonexistent/binary", Args: []string{"x"}}
-	_, _, err := Connect(context.Background(), sc)
+	_, _, err := Connect(context.Background(), sc, nil)
 	if err == nil {
 		t.Fatal("Connect stdio nonexistent: want error, got nil")
 	}
@@ -49,7 +49,7 @@ func TestConnectStdio(t *testing.T) {
 func TestConnectRemoteNoURL(t *testing.T) {
 	// A remote config with no URL should error.
 	sc := config.ServerConfig{Transport: "streamable-http"}
-	_, _, err := Connect(context.Background(), sc)
+	_, _, err := Connect(context.Background(), sc, nil)
 	if err == nil {
 		t.Fatal("Connect remote no URL: want error, got nil")
 	}
@@ -57,7 +57,7 @@ func TestConnectRemoteNoURL(t *testing.T) {
 
 func TestConnectNoCommandNoURL(t *testing.T) {
 	sc := config.ServerConfig{}
-	_, _, err := Connect(context.Background(), sc)
+	_, _, err := Connect(context.Background(), sc, nil)
 	if err == nil {
 		t.Fatal("Connect no command/url: want error, got nil")
 	}
@@ -65,7 +65,7 @@ func TestConnectNoCommandNoURL(t *testing.T) {
 
 func TestConnectUnknownTransport(t *testing.T) {
 	sc := config.ServerConfig{URL: "http://x", Transport: "bogus"}
-	_, _, err := Connect(context.Background(), sc)
+	_, _, err := Connect(context.Background(), sc, nil)
 	if err == nil {
 		t.Fatal("Connect unknown transport: want error, got nil")
 	}
@@ -74,7 +74,7 @@ func TestConnectUnknownTransport(t *testing.T) {
 func TestConnectRemoteBadURL(t *testing.T) {
 	// A streamable-http URL that doesn't respond should error on initialize.
 	sc := config.ServerConfig{URL: "http://127.0.0.1:1/mcp", Transport: "streamable-http"}
-	_, _, err := Connect(context.Background(), sc)
+	_, _, err := Connect(context.Background(), sc, nil)
 	if err == nil {
 		t.Fatal("Connect bad remote URL: want error, got nil")
 	}
@@ -98,7 +98,7 @@ func (n *noListCaller) CallTool(ctx context.Context, request mcp.CallToolRequest
 func TestConnectFakeMCP(t *testing.T) {
 	bin := buildFakeServer(t)
 	sc := config.ServerConfig{Command: bin}
-	caller, tools, err := Connect(context.Background(), sc)
+	caller, tools, err := Connect(context.Background(), sc, nil)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
