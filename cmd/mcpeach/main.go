@@ -7,17 +7,21 @@ import (
 	"net/http"
 	"os"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/fang"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/spf13/cobra"
 
+	mcclient "github.com/mcpeach/mcpeach/internal/client"
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/connect"
 	"github.com/mcpeach/mcpeach/internal/control"
 	"github.com/mcpeach/mcpeach/internal/gateway"
+	"github.com/mcpeach/mcpeach/internal/mcpconfig"
 	"github.com/mcpeach/mcpeach/internal/secrets"
 	"github.com/mcpeach/mcpeach/internal/server"
 	"github.com/mcpeach/mcpeach/internal/service"
+	"github.com/mcpeach/mcpeach/internal/tui"
 )
 
 // version is set at build time via -ldflags.
@@ -33,7 +37,7 @@ tool groups to clients.`,
 		Version: version,
 	}
 
-	root.AddCommand(serveCmd(), installCmd(), uninstallCmd(), statusCmd())
+	root.AddCommand(serveCmd(), tuiCmd(), importCmd(), exportCmd(), installCmd(), uninstallCmd(), statusCmd())
 
 	if err := fang.Execute(context.Background(), root); err != nil {
 		os.Exit(1)
@@ -127,6 +131,56 @@ func runDaemon(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// tuiCmd launches the Bubble Tea TUI over the control-plane unix socket.
+func tuiCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "tui",
+		Short: "Launch the mcpeach TUI",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c := mcclient.NewUnix(config.SocketPath())
+			m := tui.NewModel(c)
+			p := tea.NewProgram(m)
+			_, err := p.Run()
+			return err
+		},
+	}
+}
+
+// importCmd imports servers from a Claude Code MCP config JSON file.
+func importCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "import <file>",
+		Short: "Import servers from a Claude Code MCP config JSON file",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(config.Path())
+			if err != nil {
+				return err
+			}
+			if err := mcpconfig.Import(args[0], cfg); err != nil {
+				return err
+			}
+			return config.Save(config.Path(), cfg)
+		},
+	}
+}
+
+// exportCmd writes the mcpeach servers to a Claude Code MCP config JSON file.
+func exportCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "export <file>",
+		Short: "Export servers to a Claude Code MCP config JSON file",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(config.Path())
+			if err != nil {
+				return err
+			}
+			return mcpconfig.Export(args[0], cfg)
+		},
+	}
 }
 
 func installCmd() *cobra.Command {

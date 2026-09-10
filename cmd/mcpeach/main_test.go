@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +38,96 @@ func TestServeCmd(t *testing.T) {
 	}
 	if cmd.Use != "serve" {
 		t.Errorf("Use = %q, want serve", cmd.Use)
+	}
+}
+
+func TestTuiCmd(t *testing.T) {
+	cmd := tuiCmd()
+	if cmd == nil {
+		t.Fatal("tuiCmd returned nil")
+	}
+	if cmd.Use != "tui" {
+		t.Errorf("Use = %q, want tui", cmd.Use)
+	}
+}
+
+func TestImportCmd(t *testing.T) {
+	cmd := importCmd()
+	if cmd == nil {
+		t.Fatal("importCmd returned nil")
+	}
+	if cmd.Use != "import <file>" {
+		t.Errorf("Use = %q, want import <file>", cmd.Use)
+	}
+}
+
+func TestExportCmd(t *testing.T) {
+	cmd := exportCmd()
+	if cmd == nil {
+		t.Fatal("exportCmd returned nil")
+	}
+	if cmd.Use != "export <file>" {
+		t.Errorf("Use = %q, want export <file>", cmd.Use)
+	}
+}
+
+func TestImportCmdRunE(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	// Write a minimal config.
+	cfg := config.Default()
+	if err := config.Save(config.Path(), cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Write a Claude Code MCP config JSON to import.
+	src := filepath.Join(dir, "mcp.json")
+	if err := os.WriteFile(src, []byte(`{"mcpServers":{"github":{"command":"npx","args":["-y","@modelcontextprotocol/server-github"]}}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cmd := importCmd()
+	if err := cmd.RunE(cmd, []string{src}); err != nil {
+		t.Fatalf("import RunE: %v", err)
+	}
+
+	// Verify the server was imported into the config.
+	loaded, err := config.Load(config.Path())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := loaded.Servers["github"]; !ok {
+		t.Error("import did not add github server")
+	}
+}
+
+func TestExportCmdRunE(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	// Write a config with one server.
+	cfg := config.Default()
+	cfg.Servers = map[string]config.ServerConfig{
+		"github": {Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-github"}, Enabled: true},
+	}
+	if err := config.Save(config.Path(), cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	dst := filepath.Join(dir, "out.json")
+	cmd := exportCmd()
+	if err := cmd.RunE(cmd, []string{dst}); err != nil {
+		t.Fatalf("export RunE: %v", err)
+	}
+
+	// Verify the file was written and contains the server.
+	b, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(b), "github") {
+		t.Errorf("export file missing github: %s", b)
 	}
 }
 
