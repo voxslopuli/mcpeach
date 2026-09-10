@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/connect"
@@ -111,6 +112,8 @@ func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "config not available")
 		return
 	}
+	// Bound the request body to prevent memory exhaustion on the control socket.
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req AddServerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -118,6 +121,18 @@ func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if strings.Contains(req.Name, "__") {
+		writeError(w, http.StatusBadRequest, "name cannot contain '__' (reserved for tool canonicalization)")
+		return
+	}
+	if req.Command != "" && req.URL != "" {
+		writeError(w, http.StatusBadRequest, "cannot set both command and url")
+		return
+	}
+	if req.Command == "" && req.URL == "" {
+		writeError(w, http.StatusBadRequest, "must set command or url")
 		return
 	}
 	if _, exists := h.cfg.Servers[req.Name]; exists {
@@ -331,7 +346,13 @@ func (s *Server) Start(ctx context.Context) error {
 		_ = ln.Close()
 		return err
 	}
-	s.httpSrv = &http.Server{Handler: s.handler}
+	s.httpSrv = &http.Server{
+		Handler:           s.handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	go func() {
 		<-ctx.Done()
 		_ = s.httpSrv.Close()
