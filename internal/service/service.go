@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"sync"
 
 	ks "github.com/kardianos/service"
 )
@@ -64,16 +65,21 @@ func (m *Manager) Status() (Status, error) {
 // Program implements kardianos/service.Interface. It runs the daemon until
 // the service is stopped.
 type Program struct {
-	run    func(ctx context.Context) error
-	stop   func()
-	cancel context.CancelFunc
-	log    func(err error)
+	run  func(ctx context.Context) error
+	stop func()
+	log  func(err error)
+
+	mu       sync.Mutex // guards cancel
+	cancel   context.CancelFunc
+	stopOnce sync.Once // ensures the stop hook runs exactly once
 }
 
 // Start runs the daemon in a goroutine.
 func (p *Program) Start(s ks.Service) error {
 	ctx, cancel := context.WithCancel(context.Background())
+	p.mu.Lock()
 	p.cancel = cancel
+	p.mu.Unlock()
 	go func() {
 		if p.run != nil {
 			if err := p.run(ctx); err != nil && p.log != nil {
@@ -84,13 +90,18 @@ func (p *Program) Start(s ks.Service) error {
 	return nil
 }
 
-// Stop cancels the daemon context and invokes the caller's stop hook.
+// Stop cancels the daemon context and invokes the caller's stop hook. It is
+// safe to call concurrently with Start and idempotent: the stop hook runs at
+// most once.
 func (p *Program) Stop(s ks.Service) error {
-	if p.cancel != nil {
-		p.cancel()
+	p.mu.Lock()
+	cancel := p.cancel
+	p.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 	if p.stop != nil {
-		p.stop()
+		p.stopOnce.Do(p.stop)
 	}
 	return nil
 }

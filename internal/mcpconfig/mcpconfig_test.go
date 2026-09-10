@@ -30,7 +30,7 @@ func TestImport(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	if err := Import(path, cfg); err != nil {
+	if _, err := Import(path, cfg); err != nil {
 		t.Fatalf("Import: %v", err)
 	}
 
@@ -63,7 +63,7 @@ func TestImportPreservesExisting(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.Servers["existing"] = config.ServerConfig{Command: "keep", Enabled: true}
-	if err := Import(path, cfg); err != nil {
+	if _, err := Import(path, cfg); err != nil {
 		t.Fatalf("Import: %v", err)
 	}
 	if _, ok := cfg.Servers["existing"]; !ok {
@@ -76,7 +76,7 @@ func TestImportPreservesExisting(t *testing.T) {
 
 func TestImportMissingFile(t *testing.T) {
 	cfg := config.Default()
-	if err := Import(filepath.Join(t.TempDir(), "nope.json"), cfg); err == nil {
+	if _, err := Import(filepath.Join(t.TempDir(), "nope.json"), cfg); err == nil {
 		t.Fatal("Import missing file: want error, got nil")
 	}
 }
@@ -87,7 +87,7 @@ func TestImportBadJSON(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	cfg := config.Default()
-	if err := Import(path, cfg); err == nil {
+	if _, err := Import(path, cfg); err == nil {
 		t.Fatal("Import bad JSON: want error, got nil")
 	}
 }
@@ -133,7 +133,7 @@ func TestImportNilConfig(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"mcpServers": {}}`), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	if err := Import(path, nil); err == nil {
+	if _, err := Import(path, nil); err == nil {
 		t.Fatal("Import with nil config: want error, got nil")
 	}
 }
@@ -144,7 +144,7 @@ func TestImportNilServersMap(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	cfg := &config.Config{} // Servers is nil
-	if err := Import(path, cfg); err != nil {
+	if _, err := Import(path, cfg); err != nil {
 		t.Fatalf("Import: %v", err)
 	}
 	if _, ok := cfg.Servers["a"]; !ok {
@@ -190,7 +190,7 @@ func TestRoundTrip(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	if err := Import(path, cfg); err != nil {
+	if _, err := Import(path, cfg); err != nil {
 		t.Fatalf("Import: %v", err)
 	}
 	out := filepath.Join(t.TempDir(), "out.json")
@@ -200,7 +200,7 @@ func TestRoundTrip(t *testing.T) {
 
 	// Re-import the exported file and compare.
 	cfg2 := config.Default()
-	if err := Import(out, cfg2); err != nil {
+	if _, err := Import(out, cfg2); err != nil {
 		t.Fatalf("re-Import: %v", err)
 	}
 	if len(cfg2.Servers) != 2 {
@@ -216,5 +216,40 @@ func TestRoundTrip(t *testing.T) {
 	b := cfg2.Servers["b"]
 	if b.URL != "https://x/mcp" || b.Transport != "streamable-http" {
 		t.Errorf("server b = %+v", b)
+	}
+}
+func TestExportNilConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	if err := Export(path, nil); err == nil {
+		t.Fatal("Export with nil config: want error, got nil")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("Export with nil config wrote a file: %v", err)
+	}
+}
+
+func TestImportConflicts(t *testing.T) {
+	raw := `{"mcpServers": {"dup": {"command": "new"}, "fresh": {"command": "echo"}}}`
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg := config.Default()
+	cfg.Servers["dup"] = config.ServerConfig{Command: "old", Enabled: true}
+	conflicts, err := Import(path, cfg)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if len(conflicts) != 1 || conflicts[0] != "dup" {
+		t.Errorf("conflicts = %v, want [dup]", conflicts)
+	}
+	// The conflicting server is overwritten by the imported definition.
+	if got := cfg.Servers["dup"].Command; got != "new" {
+		t.Errorf("dup command = %q, want new (overwritten)", got)
+	}
+	// Non-conflicting servers are preserved.
+	if _, ok := cfg.Servers["fresh"]; !ok {
+		t.Error("fresh server not imported")
 	}
 }

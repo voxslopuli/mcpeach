@@ -383,7 +383,7 @@ func NewServer(sock string, handler http.Handler) *Server {
 // Start binds the unix socket and serves in a background goroutine until ctx
 // is cancelled. It returns once the listener is bound.
 func (s *Server) Start(ctx context.Context) error {
-	if err := os.MkdirAll(filepath.Dir(s.sock), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.sock), 0o700); err != nil {
 		return err
 	}
 	// Remove a stale socket file if present.

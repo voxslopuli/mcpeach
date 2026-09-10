@@ -776,6 +776,25 @@ func TestServeUnixSocket(t *testing.T) {
 	}
 }
 
+func TestServerStartCreatesPrivateSocketDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "nested", "deep")
+	sock := filepath.Join(dir, "mcpeach.sock")
+	srv := NewServer(sock, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := srv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat socket dir: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf("socket dir mode = %o, want 700", perm)
+	}
+}
+
 func TestServerStartSetsTimeouts(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "mcpeach.sock")
