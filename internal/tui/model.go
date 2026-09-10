@@ -69,13 +69,14 @@ type toolsLoadedMsg struct {
 	tools []string
 }
 
-// loadLogsCmd returns a tea.Cmd that fetches logs for the selected server.
-func (m *Model) loadLogsCmd() tea.Cmd {
+// loadLogsCmd returns a tea.Cmd that fetches logs for the named server. The
+// name is captured as a string so the command is safe even if the selection
+// or server list changes while the command is in flight.
+func (m *Model) loadLogsCmd(name string) tea.Cmd {
 	return func() tea.Msg {
-		if m.client == nil || len(m.servers) == 0 {
+		if m.client == nil {
 			return logsLoadedMsg{}
 		}
-		name := m.servers[m.selected].Name
 		lines, err := m.client.ServerLogs(context.Background(), name)
 		if err != nil {
 			return logsLoadedMsg{}
@@ -207,8 +208,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.stopSelected()
 		case 'l':
 			m.showLogs = !m.showLogs
-			if m.showLogs {
-				return m, m.loadLogsCmd()
+			if m.showLogs && len(m.servers) > 0 {
+				return m, m.loadLogsCmd(m.servers[m.selected].Name)
 			}
 		case 't':
 			m.showTools = !m.showTools
@@ -218,6 +219,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case 'a':
 			m.showForm = !m.showForm
 		case uv.KeyEscape, 'q':
+			// If a sub-view is active, esc/q toggles back to the list.
+			if m.showLogs || m.showTools || m.showForm {
+				m.showLogs = false
+				m.showTools = false
+				m.showForm = false
+				return m, nil
+			}
 			return m, tea.Quit
 		}
 		// Ctrl+C quits.
@@ -240,6 +248,11 @@ func (m *Model) View() tea.View {
 	}
 
 	if m.showLogs {
+		if len(m.servers) == 0 || m.selected >= len(m.servers) {
+			b.WriteString("No server selected\n\n")
+			b.WriteString("l toggle logs · esc/q back\n")
+			return tea.NewView(b.String())
+		}
 		b.WriteString("Logs for " + m.servers[m.selected].Name + "\n\n")
 		for _, line := range m.logLines {
 			b.WriteString(line + "\n")

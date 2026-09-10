@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -68,7 +69,7 @@ func (c *Client) ServerLogs(ctx context.Context, name string) ([]string, error) 
 	var resp struct {
 		Lines []string `json:"lines"`
 	}
-	if err := c.do(ctx, http.MethodGet, "/v0/servers/"+name+"/logs", nil, &resp); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/v0/servers/"+url.PathEscape(name)+"/logs", nil, &resp); err != nil {
 		return nil, err
 	}
 	return resp.Lines, nil
@@ -76,12 +77,12 @@ func (c *Client) ServerLogs(ctx context.Context, name string) ([]string, error) 
 
 // StartServer starts a server by name.
 func (c *Client) StartServer(ctx context.Context, name string) error {
-	return c.do(ctx, http.MethodPost, "/v0/servers/"+name+"/start", nil, nil)
+	return c.do(ctx, http.MethodPost, "/v0/servers/"+url.PathEscape(name)+"/start", nil, nil)
 }
 
 // StopServer stops a server by name.
 func (c *Client) StopServer(ctx context.Context, name string) error {
-	return c.do(ctx, http.MethodPost, "/v0/servers/"+name+"/stop", nil, nil)
+	return c.do(ctx, http.MethodPost, "/v0/servers/"+url.PathEscape(name)+"/stop", nil, nil)
 }
 
 // do performs an HTTP request and decodes the JSON response, returning an

@@ -293,6 +293,48 @@ func TestModelToggleLogViewer(t *testing.T) {
 	}
 }
 
+func TestModelEscBackFromSubView(t *testing.T) {
+	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a"}}}
+	m := NewModel(fc)
+	m.loadServers()
+
+	// Enter the log viewer.
+	m.Update(tea.KeyPressMsg{Code: 'l'})
+	if !m.showLogs {
+		t.Fatal("showLogs = false, want true")
+	}
+
+	// esc toggles back to the list, does not quit.
+	_, cmd := m.Update(tea.KeyPressMsg{Code: uv.KeyEscape})
+	if cmd != nil {
+		t.Errorf("esc in sub-view: want nil cmd (back), got %v", cmd)
+	}
+	if m.showLogs {
+		t.Error("showLogs = true, want false after esc")
+	}
+}
+
+func TestModelQuitFromList(t *testing.T) {
+	fc := &fakeClient{}
+	m := NewModel(fc)
+
+	// esc in the list view quits.
+	_, cmd := m.Update(tea.KeyPressMsg{Code: uv.KeyEscape})
+	if cmd == nil {
+		t.Error("esc in list: want quit cmd, got nil")
+	}
+}
+
+func TestModelViewLogsNoServer(t *testing.T) {
+	// showLogs with no servers should not panic.
+	m := NewModel(&fakeClient{})
+	m.showLogs = true
+	v := m.View()
+	if !strings.Contains(v.Content, "No server selected") {
+		t.Errorf("View logs no-server missing message: %q", v.Content)
+	}
+}
+
 func TestModelToggleTools(t *testing.T) {
 	fc := &fakeClient{tools: []string{"a__tool1", "a__tool2"}}
 	m := NewModel(fc)
