@@ -247,31 +247,49 @@ func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Close any existing client before reconnecting to avoid leaking a
-	// subprocess or SSE connection if start is called twice.
-	if h.gw != nil {
-		h.gw.CloseClient(name)
-	}
-
-	// Connect the upstream server and register its tools + client with the
-	// gateway so the aggregated endpoint exposes them.
+	// Connect the replacement FIRST so a failed connect leaves the existing
+	// client untouched. The caller owns closing the returned client.
 	caller, tools, err := connect.Connect(r.Context(), sc, env)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Cleanup guard: close the new client exactly once on any post-connect
+	// failure, so a partial swap does not leak it.
+	closed := false
+	closeNew := func() {
+		if !closed {
+			closed = true
+			if closer, ok := caller.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+		}
+	}
+	defer closeNew()
+
 	if h.gw != nil {
+		// Atomically swap: remove the old client + old tools, then register the
+		// new client + new tools.
+		if old := h.gw.RemoveServer(name); old != nil {
+			if closer, ok := old.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+		}
 		h.gw.RegisterClient(name, caller)
 		for _, t := range tools {
 			h.gw.RegisterTool(name, t)
 		}
 	}
 	if h.mgr != nil {
-		if err := h.mgr.MarkRunning(name); err != nil {
+		// On replacement the server is already running; tolerate that as a
+		// no-op so restarting a running server succeeds.
+		if err := h.mgr.MarkRunning(name); err != nil && !strings.Contains(err.Error(), "invalid transition") {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
+	// The swap succeeded; the new client is now owned by the gateway.
+	closed = true
 	if h.syncTools != nil {
 		h.syncTools()
 	}
@@ -296,13 +314,21 @@ func (h *Handler) stopServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.gw != nil {
-		h.gw.CloseClient(name)
+		// Atomically remove the client and its tools, then close the client.
+		if c := h.gw.RemoveServer(name); c != nil {
+			if closer, ok := c.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+		}
 	}
 	if h.mgr != nil {
 		if err := h.mgr.MarkStopped(name); err != nil && !strings.Contains(err.Error(), "not running") {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+	}
+	if h.syncTools != nil {
+		h.syncTools()
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 }
