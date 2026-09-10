@@ -208,6 +208,32 @@ func TestManagerPassesArgs(t *testing.T) {
 	t.Fatalf("args not passed to subprocess; logs: %v", m.Logs("fake"))
 }
 
+func TestManagerStartInheritsEnv(t *testing.T) {
+	bin := buildFakeServer(t)
+	t.Setenv("MC_TEST_VAR", "inherited")
+	m := NewManager()
+	srv := New("fake")
+	m.Add(srv)
+
+	// Start with a configured env var; the child must see BOTH the inherited
+	// MC_TEST_VAR and the configured MC_CONFIG_VAR.
+	if err := m.Start(context.Background(), "fake", bin, nil, []string{"MC_CONFIG_VAR=configured"}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = m.Stop("fake") }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, line := range m.Logs("fake") {
+			if strings.Contains(line, `"MC_TEST_VAR":"inherited"`) && strings.Contains(line, `"MC_CONFIG_VAR":"configured"`) {
+				return // child saw both inherited and configured env
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("child env missing inherited/configured vars; logs: %v", m.Logs("fake"))
+}
+
 func TestManagerLogsUnknown(t *testing.T) {
 	m := NewManager()
 	if logs := m.Logs("nope"); logs != nil {

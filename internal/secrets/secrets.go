@@ -118,6 +118,47 @@ func (r *Resolver) ResolveEnv(env map[string]string) ([]string, error) {
 	return out, nil
 }
 
+// MergeEnv merges the resolved configured environment over the process
+// environment. Configured keys replace inherited values; unconfigured keys
+// keep their inherited value.
+func MergeEnv(configured []string) []string {
+	// Build a map of configured KEY=value entries (last wins).
+	overrides := map[string]string{}
+	order := []string{}
+	for _, kv := range configured {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		if _, exists := overrides[k]; !exists {
+			order = append(order, k)
+		}
+		overrides[k] = v
+	}
+	// Start from the inherited environment, replacing configured keys.
+	out := []string{}
+	seen := map[string]bool{}
+	for _, kv := range os.Environ() {
+		k, _, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		if v, isOverride := overrides[k]; isOverride {
+			out = append(out, k+"="+v)
+			seen[k] = true
+		} else {
+			out = append(out, kv)
+		}
+	}
+	// Append any configured keys not present in the inherited env.
+	for _, k := range order {
+		if !seen[k] {
+			out = append(out, k+"="+overrides[k])
+		}
+	}
+	return out
+}
+
 // splitKeychainRef parses "service/user" into its parts, requiring both.
 func splitKeychainRef(ref string) (string, string, error) {
 	idx := strings.Index(ref, "/")

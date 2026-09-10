@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -149,6 +150,55 @@ func TestStoreKeychainNoStore(t *testing.T) {
 	r := NewResolver(nil)
 	if err := r.Store("mcpeach/github", "x"); err == nil {
 		t.Fatal("Store with nil store: want error, got nil")
+	}
+}
+
+// envMap converts a []string of KEY=value entries into a map for assertions.
+func envMap(entries []string) map[string]string {
+	m := map[string]string{}
+	for _, kv := range entries {
+		k, v, ok := strings.Cut(kv, "=")
+		if ok {
+			m[k] = v
+		}
+	}
+	return m
+}
+
+func TestMergeEnv(t *testing.T) {
+	t.Setenv("INHERITED_VAR", "inherited-value")
+	t.Setenv("PATH", "/usr/bin:/bin")
+
+	got := envMap(MergeEnv([]string{"FOO=bar", "PATH=/custom"}))
+
+	if got["INHERITED_VAR"] != "inherited-value" {
+		t.Errorf("INHERITED_VAR = %q, want inherited-value (inherited var must survive)", got["INHERITED_VAR"])
+	}
+	if got["PATH"] != "/custom" {
+		t.Errorf("PATH = %q, want /custom (configured key must override inherited)", got["PATH"])
+	}
+	if got["FOO"] != "bar" {
+		t.Errorf("FOO = %q, want bar (new configured key must be appended)", got["FOO"])
+	}
+}
+
+func TestMergeEnvEmptyConfigured(t *testing.T) {
+	t.Setenv("KEEP_ME", "yes")
+
+	got := envMap(MergeEnv(nil))
+
+	if got["KEEP_ME"] != "yes" {
+		t.Errorf("KEEP_ME = %q, want yes (empty configured must keep all inherited vars)", got["KEEP_ME"])
+	}
+}
+
+func TestMergeEnvDuplicateKeys(t *testing.T) {
+	t.Setenv("DUP", "inherited")
+
+	got := envMap(MergeEnv([]string{"DUP=first", "DUP=second"}))
+
+	if got["DUP"] != "second" {
+		t.Errorf("DUP = %q, want second (last configured value must win)", got["DUP"])
 	}
 }
 

@@ -16,8 +16,9 @@ import (
 
 func main() {
 	// Emit a JSON log line to stderr (the manager captures stderr), including
-	// any args so tests can verify they reach the subprocess.
-	fmt.Fprintf(os.Stderr, `{"level":"info","msg":"fake-mcp started","args":%q,"time":%q}`+"\n", os.Args[1:], time.Now().Format(time.RFC3339))
+	// any args and selected env vars so tests can verify they reach the
+	// subprocess.
+	fmt.Fprintf(os.Stderr, `{"level":"info","msg":"fake-mcp started","args":%q,"env":{"MC_TEST_VAR":%q,"MC_CONFIG_VAR":%q},"time":%q}`+"\n", os.Args[1:], os.Getenv("MC_TEST_VAR"), os.Getenv("MC_CONFIG_VAR"), time.Now().Format(time.RFC3339))
 
 	s := server.NewMCPServer("fake-mcp", "1.0.0")
 	s.AddTool(mcp.NewTool("echo", mcp.WithString("text", mcp.Required(), mcp.Description("text to echo"))),
