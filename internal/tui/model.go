@@ -17,18 +17,23 @@ import (
 type clientIface interface {
 	ListServers(ctx context.Context) ([]client.ServerInfo, error)
 	ListTools(ctx context.Context) ([]string, error)
+	ServerLogs(ctx context.Context, name string) ([]string, error)
 	StartServer(ctx context.Context, name string) error
 	StopServer(ctx context.Context, name string) error
 }
 
 // Model is the Bubble Tea model for the mcpeach TUI.
 type Model struct {
-	client   clientIface
-	servers  []client.ServerInfo
-	tools    []string
-	selected int
-	width    int
-	height   int
+	client    clientIface
+	servers   []client.ServerInfo
+	tools     []string
+	logLines  []string
+	selected  int
+	showLogs  bool
+	showTools bool
+	showForm  bool
+	width     int
+	height    int
 }
 
 // NewModel builds a TUI model backed by the given control-plane client.
@@ -52,6 +57,46 @@ type serversLoadedMsg struct {
 // serverActionMsg is sent after a start/stop completes.
 type serverActionMsg struct {
 	name string
+}
+
+// logsLoadedMsg carries the result of a ServerLogs call.
+type logsLoadedMsg struct {
+	lines []string
+}
+
+// toolsLoadedMsg carries the result of a ListTools call.
+type toolsLoadedMsg struct {
+	tools []string
+}
+
+// loadLogsCmd returns a tea.Cmd that fetches logs for the named server. The
+// name is captured as a string so the command is safe even if the selection
+// or server list changes while the command is in flight.
+func (m *Model) loadLogsCmd(name string) tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return logsLoadedMsg{}
+		}
+		lines, err := m.client.ServerLogs(context.Background(), name)
+		if err != nil {
+			return logsLoadedMsg{}
+		}
+		return logsLoadedMsg{lines: lines}
+	}
+}
+
+// loadToolsCmd returns a tea.Cmd that fetches the aggregated tool list.
+func (m *Model) loadToolsCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return toolsLoadedMsg{}
+		}
+		tools, err := m.client.ListTools(context.Background())
+		if err != nil {
+			return toolsLoadedMsg{}
+		}
+		return toolsLoadedMsg{tools: tools}
+	}
 }
 
 // loadServersCmd returns a tea.Cmd that fetches the server list asynchronously.
@@ -145,6 +190,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case serverActionMsg:
 		// After a start/stop, refresh the server list.
 		return m, m.loadServersCmd()
+	case logsLoadedMsg:
+		m.logLines = msg.lines
+		return m, nil
+	case toolsLoadedMsg:
+		m.tools = msg.tools
+		return m, nil
 	case tea.KeyPressMsg:
 		switch msg.Code {
 		case tea.KeyUp:
@@ -155,7 +206,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.startSelected()
 		case uv.KeySpace:
 			return m, m.stopSelected()
+		case 'l':
+			m.showLogs = !m.showLogs
+			if m.showLogs && len(m.servers) > 0 {
+				return m, m.loadLogsCmd(m.servers[m.selected].Name)
+			}
+		case 't':
+			m.showTools = !m.showTools
+			if m.showTools {
+				return m, m.loadToolsCmd()
+			}
+		case 'a':
+			m.showForm = !m.showForm
 		case uv.KeyEscape, 'q':
+			// If a sub-view is active, esc/q toggles back to the list.
+			if m.showLogs || m.showTools || m.showForm {
+				m.showLogs = false
+				m.showTools = false
+				m.showForm = false
+				return m, nil
+			}
 			return m, tea.Quit
 		}
 		// Ctrl+C quits.
@@ -170,6 +240,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) View() tea.View {
 	var b strings.Builder
 	b.WriteString("mcpeach\n\n")
+
+	if m.showForm {
+		b.WriteString("Add server form (coming soon)\n\n")
+		b.WriteString("esc/q back\n")
+		return tea.NewView(b.String())
+	}
+
+	if m.showLogs {
+		if len(m.servers) == 0 || m.selected >= len(m.servers) {
+			b.WriteString("No server selected\n\n")
+			b.WriteString("l toggle logs · esc/q back\n")
+			return tea.NewView(b.String())
+		}
+		b.WriteString("Logs for " + m.servers[m.selected].Name + "\n\n")
+		for _, line := range m.logLines {
+			b.WriteString(line + "\n")
+		}
+		b.WriteString("\nl toggle logs · esc/q back\n")
+		return tea.NewView(b.String())
+	}
+
+	if m.showTools {
+		b.WriteString("Tools\n\n")
+		for _, tool := range m.tools {
+			b.WriteString(tool + "\n")
+		}
+		b.WriteString("\nt toggle tools · esc/q back\n")
+		return tea.NewView(b.String())
+	}
+
 	for i, s := range m.servers {
 		marker := " "
 		if i == m.selected {
@@ -177,6 +277,6 @@ func (m *Model) View() tea.View {
 		}
 		fmt.Fprintf(&b, "%s %-20s %s\n", marker, s.Name, s.State)
 	}
-	b.WriteString("\n↑/↓ select · enter start · space stop · q quit")
+	b.WriteString("\n↑/↓ select · enter start · space stop · l logs · t tools · a add · q quit")
 	return tea.NewView(b.String())
 }

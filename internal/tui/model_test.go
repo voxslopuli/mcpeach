@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,6 +15,7 @@ import (
 type fakeClient struct {
 	servers []client.ServerInfo
 	tools   []string
+	logs    map[string][]string
 	started map[string]bool
 	stopped map[string]bool
 }
@@ -23,6 +25,9 @@ func (f *fakeClient) ListServers(ctx context.Context) ([]client.ServerInfo, erro
 }
 func (f *fakeClient) ListTools(ctx context.Context) ([]string, error) {
 	return f.tools, nil
+}
+func (f *fakeClient) ServerLogs(ctx context.Context, name string) ([]string, error) {
+	return f.logs[name], nil
 }
 func (f *fakeClient) StartServer(ctx context.Context, name string) error {
 	if f.started == nil {
@@ -108,6 +113,45 @@ func TestModelView(t *testing.T) {
 	v := m.View()
 	if v.Content == "" {
 		t.Error("View returned empty string")
+	}
+}
+
+func TestModelViewLogs(t *testing.T) {
+	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a"}}, logs: map[string][]string{"a": {"line1"}}}
+	m := NewModel(fc)
+	m.loadServers()
+	m.showLogs = true
+	m.logLines = []string{"line1"}
+	v := m.View()
+	if !strings.Contains(v.Content, "Logs for a") {
+		t.Errorf("View logs missing header: %q", v.Content)
+	}
+	if !strings.Contains(v.Content, "line1") {
+		t.Errorf("View logs missing line: %q", v.Content)
+	}
+}
+
+func TestModelViewTools(t *testing.T) {
+	fc := &fakeClient{tools: []string{"a__tool1"}}
+	m := NewModel(fc)
+	m.showTools = true
+	m.tools = []string{"a__tool1"}
+	v := m.View()
+	if !strings.Contains(v.Content, "Tools") {
+		t.Errorf("View tools missing header: %q", v.Content)
+	}
+	if !strings.Contains(v.Content, "a__tool1") {
+		t.Errorf("View tools missing tool: %q", v.Content)
+	}
+}
+
+func TestModelViewForm(t *testing.T) {
+	fc := &fakeClient{}
+	m := NewModel(fc)
+	m.showForm = true
+	v := m.View()
+	if !strings.Contains(v.Content, "Add server form") {
+		t.Errorf("View form missing header: %q", v.Content)
 	}
 }
 
@@ -219,6 +263,116 @@ func TestModelUpdateLoadServers(t *testing.T) {
 	}
 }
 
+func TestModelToggleLogViewer(t *testing.T) {
+	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a"}}, logs: map[string][]string{"a": {"line1", "line2"}}}
+	m := NewModel(fc)
+	m.loadServers()
+
+	// 'l' toggles the log viewer.
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
+	if cmd == nil {
+		t.Fatal("'l': want load-logs cmd, got nil")
+	}
+	msg := cmd()
+	logsMsg, ok := msg.(logsLoadedMsg)
+	if !ok {
+		t.Fatalf("load-logs cmd produced %T, want logsLoadedMsg", msg)
+	}
+	m.Update(logsMsg)
+	if !m.showLogs {
+		t.Error("showLogs = false, want true after 'l'")
+	}
+	if len(m.logLines) != 2 {
+		t.Errorf("logLines = %d, want 2", len(m.logLines))
+	}
+
+	// 'l' again hides the log viewer.
+	m.Update(tea.KeyPressMsg{Code: 'l'})
+	if m.showLogs {
+		t.Error("showLogs = true, want false after second 'l'")
+	}
+}
+
+func TestModelEscBackFromSubView(t *testing.T) {
+	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a"}}}
+	m := NewModel(fc)
+	m.loadServers()
+
+	// Enter the log viewer.
+	m.Update(tea.KeyPressMsg{Code: 'l'})
+	if !m.showLogs {
+		t.Fatal("showLogs = false, want true")
+	}
+
+	// esc toggles back to the list, does not quit.
+	_, cmd := m.Update(tea.KeyPressMsg{Code: uv.KeyEscape})
+	if cmd != nil {
+		t.Errorf("esc in sub-view: want nil cmd (back), got %v", cmd)
+	}
+	if m.showLogs {
+		t.Error("showLogs = true, want false after esc")
+	}
+}
+
+func TestModelQuitFromList(t *testing.T) {
+	fc := &fakeClient{}
+	m := NewModel(fc)
+
+	// esc in the list view quits.
+	_, cmd := m.Update(tea.KeyPressMsg{Code: uv.KeyEscape})
+	if cmd == nil {
+		t.Error("esc in list: want quit cmd, got nil")
+	}
+}
+
+func TestModelViewLogsNoServer(t *testing.T) {
+	// showLogs with no servers should not panic.
+	m := NewModel(&fakeClient{})
+	m.showLogs = true
+	v := m.View()
+	if !strings.Contains(v.Content, "No server selected") {
+		t.Errorf("View logs no-server missing message: %q", v.Content)
+	}
+}
+
+func TestModelToggleTools(t *testing.T) {
+	fc := &fakeClient{tools: []string{"a__tool1", "a__tool2"}}
+	m := NewModel(fc)
+
+	// 't' toggles the tools view.
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 't'})
+	if cmd == nil {
+		t.Fatal("'t': want load-tools cmd, got nil")
+	}
+	msg := cmd()
+	toolsMsg, ok := msg.(toolsLoadedMsg)
+	if !ok {
+		t.Fatalf("load-tools cmd produced %T, want toolsLoadedMsg", msg)
+	}
+	m.Update(toolsMsg)
+	if !m.showTools {
+		t.Error("showTools = false, want true after 't'")
+	}
+	if len(m.tools) != 2 {
+		t.Errorf("tools = %d, want 2", len(m.tools))
+	}
+}
+
+func TestModelToggleAddForm(t *testing.T) {
+	fc := &fakeClient{}
+	m := NewModel(fc)
+
+	// 'a' toggles the add-server form.
+	m.Update(tea.KeyPressMsg{Code: 'a'})
+	if !m.showForm {
+		t.Error("showForm = false, want true after 'a'")
+	}
+	m.Update(tea.KeyPressMsg{Code: 'a'})
+	if m.showForm {
+		t.Error("showForm = true, want false after second 'a'")
+	}
+}
+
 // errClient returns an error from every method.
 type errClient struct{}
 
@@ -226,6 +380,9 @@ func (e *errClient) ListServers(ctx context.Context) ([]client.ServerInfo, error
 	return nil, fmt.Errorf("boom")
 }
 func (e *errClient) ListTools(ctx context.Context) ([]string, error) {
+	return nil, fmt.Errorf("boom")
+}
+func (e *errClient) ServerLogs(ctx context.Context, name string) ([]string, error) {
 	return nil, fmt.Errorf("boom")
 }
 func (e *errClient) StartServer(ctx context.Context, name string) error {
