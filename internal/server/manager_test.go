@@ -153,6 +153,37 @@ func TestManagerPID(t *testing.T) {
 	}
 }
 
+func TestManagerMarkRunningStopped(t *testing.T) {
+	m := NewManager()
+	m.Add(New("fake"))
+
+	// MarkRunning transitions to running.
+	if err := m.MarkRunning("fake"); err != nil {
+		t.Fatalf("MarkRunning: %v", err)
+	}
+	if s := m.Server("fake"); s.State() != Running {
+		t.Fatalf("state = %s, want running", s.State())
+	}
+
+	// MarkStopped transitions back to stopped.
+	if err := m.MarkStopped("fake"); err != nil {
+		t.Fatalf("MarkStopped: %v", err)
+	}
+	if s := m.Server("fake"); s.State() != Stopped {
+		t.Fatalf("state = %s, want stopped", s.State())
+	}
+}
+
+func TestManagerMarkUnknown(t *testing.T) {
+	m := NewManager()
+	if err := m.MarkRunning("nope"); err == nil {
+		t.Fatal("MarkRunning unknown: want error, got nil")
+	}
+	if err := m.MarkStopped("nope"); err == nil {
+		t.Fatal("MarkStopped unknown: want error, got nil")
+	}
+}
+
 func TestManagerPassesArgs(t *testing.T) {
 	bin := buildFakeServer(t)
 	m := NewManager()
