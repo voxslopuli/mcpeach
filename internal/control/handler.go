@@ -14,6 +14,7 @@ import (
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/gateway"
 	"github.com/mcpeach/mcpeach/internal/obs"
+	"github.com/mcpeach/mcpeach/internal/secrets"
 	"github.com/mcpeach/mcpeach/internal/server"
 )
 
@@ -39,11 +40,12 @@ type Handler struct {
 	gw  *gateway.Gateway
 	cfg *config.Config
 	log *obs.Logger
+	res *secrets.Resolver
 }
 
 // NewHandler builds a control-plane handler.
 func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) http.Handler {
-	h := &Handler{mgr: mgr, gw: gw, cfg: cfg, log: obs.Default().With("pkg", "control")}
+	h := &Handler{mgr: mgr, gw: gw, cfg: cfg, log: obs.Default().With("pkg", "control"), res: secrets.NewResolver(nil)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v0/servers", h.listServers)
 	mux.HandleFunc("GET /v0/tools", h.listTools)
@@ -115,12 +117,29 @@ func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {
 	if h.mgr.Server(name) == nil {
 		h.mgr.Add(server.New(name))
 	}
-	env := envSlice(sc.Env)
+	env, err := h.resolveEnv(sc.Env)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if err := h.mgr.Start(r.Context(), name, sc.Command, env); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
+}
+
+// resolveEnv resolves any env:/keychain: references in the server's env vars.
+func (h *Handler) resolveEnv(env map[string]string) ([]string, error) {
+	out := make([]string, 0, len(env))
+	for k, v := range env {
+		resolved, err := h.res.Resolve(v)
+		if err != nil {
+			return nil, fmt.Errorf("env %s: %w", k, err)
+		}
+		out = append(out, k+"="+resolved)
+	}
+	return out, nil
 }
 
 func (h *Handler) stopServer(w http.ResponseWriter, r *http.Request) {
@@ -140,15 +159,6 @@ func (h *Handler) stopServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
-}
-
-// envSlice converts a map of env vars to a KEY=VALUE slice.
-func envSlice(env map[string]string) []string {
-	out := make([]string, 0, len(env))
-	for k, v := range env {
-		out = append(out, k+"="+v)
-	}
-	return out
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
