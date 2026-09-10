@@ -90,6 +90,19 @@ func Path() string {
 	return filepath.Join(base, "mcpeach", "mcpeach.yml")
 }
 
+// SocketPath returns the control-plane unix socket path under the XDG runtime
+// dir (falling back to the config dir). XDG_RUNTIME_DIR is read at call time.
+func SocketPath() string {
+	base := os.Getenv("XDG_RUNTIME_DIR")
+	if base == "" {
+		base = os.Getenv("XDG_CONFIG_HOME")
+		if base == "" {
+			base = xdg.ConfigHome
+		}
+	}
+	return filepath.Join(base, "mcpeach", "mcpeach.sock")
+}
+
 // Load reads and parses the config file at path.
 func Load(path string) (*Config, error) {
 	b, err := os.ReadFile(path)

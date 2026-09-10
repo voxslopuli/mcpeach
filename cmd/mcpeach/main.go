@@ -4,11 +4,16 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/charmbracelet/fang"
 	"github.com/spf13/cobra"
 
+	"github.com/mcpeach/mcpeach/internal/config"
+	"github.com/mcpeach/mcpeach/internal/control"
+	"github.com/mcpeach/mcpeach/internal/gateway"
+	"github.com/mcpeach/mcpeach/internal/server"
 	"github.com/mcpeach/mcpeach/internal/service"
 )
 
@@ -25,11 +30,65 @@ tool groups to clients.`,
 		Version: version,
 	}
 
-	root.AddCommand(installCmd(), uninstallCmd(), statusCmd())
+	root.AddCommand(serveCmd(), installCmd(), uninstallCmd(), statusCmd())
 
 	if err := fang.Execute(context.Background(), root); err != nil {
 		os.Exit(1)
 	}
+}
+
+// serveCmd runs the mcpeach daemon: it loads config, wires the gateway and
+// control plane, and serves until the context is cancelled.
+func serveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "serve",
+		Short: "Run the mcpeach daemon",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDaemon(cmd.Context())
+		},
+	}
+}
+
+// runDaemon wires and runs the mcpeach daemon until ctx is cancelled.
+func runDaemon(ctx context.Context) error {
+	cfg, err := config.Load(config.Path())
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	mgr := server.NewManager()
+	for name, sc := range cfg.Servers {
+		mgr.Add(server.New(name))
+		if sc.Enabled {
+			if err := mgr.Start(ctx, name, sc.Command, nil); err != nil {
+				return fmt.Errorf("start %s: %w", name, err)
+			}
+		}
+	}
+
+	gw := gateway.New(cfg)
+	streaming := gateway.NewStreamingServer(gw, cfg.Gateway.Name, cfg.Gateway.Version)
+
+	// Mount the MCP streaming endpoint and the control plane.
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", streaming)
+	controlHandler := control.NewHandler(mgr, gw, cfg)
+	ctrl := control.NewServer(config.SocketPath(), controlHandler)
+
+	if err := ctrl.Start(ctx); err != nil {
+		return fmt.Errorf("control plane: %w", err)
+	}
+
+	// Serve the MCP endpoint on the gateway address.
+	srv := &http.Server{Addr: cfg.Gateway.Addr, Handler: mux}
+	go func() {
+		<-ctx.Done()
+		srv.Close()
+	}()
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
 func installCmd() *cobra.Command {
@@ -37,7 +96,7 @@ func installCmd() *cobra.Command {
 		Use:   "install",
 		Short: "Install mcpeach as a background service",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			m, err := service.NewManager()
+			m, err := newServiceManager()
 			if err != nil {
 				return err
 			}
@@ -55,7 +114,7 @@ func uninstallCmd() *cobra.Command {
 		Use:   "uninstall",
 		Short: "Remove the mcpeach background service",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			m, err := service.NewManager()
+			m, err := newServiceManager()
 			if err != nil {
 				return err
 			}
@@ -73,7 +132,7 @@ func statusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show the mcpeach service status",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			m, err := service.NewManager()
+			m, err := newServiceManager()
 			if err != nil {
 				return err
 			}
@@ -85,6 +144,11 @@ func statusCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// newServiceManager builds a service manager wired to the daemon.
+func newServiceManager() (*service.Manager, error) {
+	return service.NewManager(runDaemon, func() {})
 }
 
 // statusString renders a service status for display.

@@ -64,12 +64,20 @@ func TestStatus(t *testing.T) {
 }
 
 func TestNewManager(t *testing.T) {
-	m, err := NewManager()
+	m, err := NewManager(func(ctx context.Context) error { return nil }, func() {})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
 	if m == nil {
 		t.Fatal("NewManager returned nil")
+	}
+}
+
+func TestManagerRun(t *testing.T) {
+	fs := &fakeSvc{}
+	m := &Manager{svc: fs}
+	if err := m.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 }
 

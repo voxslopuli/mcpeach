@@ -181,6 +181,29 @@ func TestPath(t *testing.T) {
 	}
 }
 
+func TestSocketPath(t *testing.T) {
+	// XDG_RUNTIME_DIR override
+	dir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+	p := SocketPath()
+	want := filepath.Join(dir, "mcpeach", "mcpeach.sock")
+	if p != want {
+		t.Errorf("SocketPath() = %q, want %q", p, want)
+	}
+}
+
+func TestSocketPathFallback(t *testing.T) {
+	// No XDG_RUNTIME_DIR → falls back to XDG_CONFIG_HOME.
+	dir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	p := SocketPath()
+	want := filepath.Join(dir, "mcpeach", "mcpeach.sock")
+	if p != want {
+		t.Errorf("SocketPath() = %q, want %q", p, want)
+	}
+}
+
 func TestSaveCreatesDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "deep")
 	path := filepath.Join(dir, "mcpeach.yml")
