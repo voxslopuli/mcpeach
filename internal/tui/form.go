@@ -2,10 +2,12 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
+	"github.com/mcpeach/mcpeach/internal/client"
 )
 
 // addServerForm is the huh form for adding a new MCP server.
@@ -39,6 +41,7 @@ func buildAddServerForm(f *addServerForm) *huh.Form {
 				Options(
 					huh.NewOption("stdio", "stdio"),
 					huh.NewOption("streamable-http", "streamable-http"),
+					huh.NewOption("sse", "sse"),
 				).
 				Value(&f.transport),
 			huh.NewInput().
@@ -67,6 +70,9 @@ func (m *Model) runAddServerForm() tea.Cmd {
 // submitAddServer sends the form values to the control plane.
 func (m *Model) submitAddServer(f *addServerForm) tea.Cmd {
 	return func() tea.Msg {
+		if err := validateAddServer(f); err != nil {
+			return addServerDoneMsg{err: err}
+		}
 		if m.client == nil {
 			return addServerDoneMsg{}
 		}
@@ -74,9 +80,33 @@ func (m *Model) submitAddServer(f *addServerForm) tea.Cmd {
 		if f.args != "" {
 			args = splitArgs(f.args)
 		}
-		err := m.client.AddServer(context.Background(), f.name, f.command, args, nil)
+		err := m.client.AddServer(context.Background(), client.AddServerRequest{
+			Name:      f.name,
+			Command:   f.command,
+			Args:      args,
+			URL:       f.url,
+			Transport: f.transport,
+		})
 		return addServerDoneMsg{err: err}
 	}
+}
+
+// validateAddServer checks transport-specific requirements before submission.
+// stdio (or unset) servers need a command; remote transports need a URL.
+func validateAddServer(f *addServerForm) error {
+	if f.name == "" {
+		return errors.New("name is required")
+	}
+	if f.transport == "" || f.transport == "stdio" {
+		if f.command == "" {
+			return errors.New("command is required for stdio servers")
+		}
+		return nil
+	}
+	if f.url == "" {
+		return errors.New("url is required for remote servers")
+	}
+	return nil
 }
 
 // splitArgs splits a space-separated string into args, respecting quotes.

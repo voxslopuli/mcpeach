@@ -94,7 +94,7 @@ func TestAddServer(t *testing.T) {
 	t.Cleanup(srv.Close)
 	c := New(srv.URL)
 
-	err := c.AddServer(context.Background(), "new", "echo", []string{"hi"}, nil)
+	err := c.AddServer(context.Background(), AddServerRequest{Name: "new", Command: "echo", Args: []string{"hi"}})
 	if err != nil {
 		t.Fatalf("AddServer: %v", err)
 	}
@@ -110,9 +110,38 @@ func TestAddServerDuplicate(t *testing.T) {
 	t.Cleanup(srv.Close)
 	c := New(srv.URL)
 
-	err := c.AddServer(context.Background(), "a", "echo", nil, nil)
+	err := c.AddServer(context.Background(), AddServerRequest{Name: "a", Command: "echo"})
 	if err == nil {
 		t.Fatal("AddServer duplicate: want error, got nil")
+	}
+}
+
+func TestAddServerFull(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{"name": "remote"})
+	}))
+	t.Cleanup(srv.Close)
+	c := New(srv.URL)
+
+	err := c.AddServer(context.Background(), AddServerRequest{
+		Name:      "remote",
+		URL:       "https://mcp.example.com/mcp",
+		Transport: "sse",
+	})
+	if err != nil {
+		t.Fatalf("AddServer: %v", err)
+	}
+	if got["name"] != "remote" {
+		t.Errorf("body name = %v, want remote", got["name"])
+	}
+	if got["url"] != "https://mcp.example.com/mcp" {
+		t.Errorf("body url = %v, want https://mcp.example.com/mcp", got["url"])
+	}
+	if got["transport"] != "sse" {
+		t.Errorf("body transport = %v, want sse", got["transport"])
 	}
 }
 

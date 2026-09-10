@@ -39,3 +39,27 @@ func TestRenderServerRow(t *testing.T) {
 		t.Errorf("unselected row = %q, want '  ' prefix", row)
 	}
 }
+
+func TestRenderServerRowLongName(t *testing.T) {
+	th := DefaultTheme()
+	row := th.renderServerRow(strings.Repeat("x", 30), "stopped", false)
+	if !strings.Contains(row, "…") {
+		t.Errorf("long name not truncated with ellipsis: %q", row)
+	}
+	// State column stays at 2 (marker) + 20 (name column).
+	if idx := strings.Index(row, "stopped"); idx != 22 {
+		t.Errorf("state at %d, want 22: %q", idx, row)
+	}
+}
+
+func TestRenderServerRowWideUnicode(t *testing.T) {
+	th := DefaultTheme()
+	row := th.renderServerRow("日本語のサーバー", "stopped", false)
+	if row == "" {
+		t.Fatal("wide unicode row rendered empty")
+	}
+	// 日本語のサーバー is 16 display cells wide; padding fills to 20.
+	if idx := strings.Index(row, "stopped"); idx != 22 {
+		t.Errorf("state at %d, want 22: %q", idx, row)
+	}
+}

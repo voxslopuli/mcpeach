@@ -43,7 +43,7 @@ func (f *fakeClient) StopServer(ctx context.Context, name string) error {
 	f.stopped[name] = true
 	return nil
 }
-func (f *fakeClient) AddServer(ctx context.Context, name, command string, args []string, env map[string]string) error {
+func (f *fakeClient) AddServer(ctx context.Context, req client.AddServerRequest) error {
 	return nil
 }
 
@@ -444,6 +444,6 @@ func (e *errClient) StartServer(ctx context.Context, name string) error {
 func (e *errClient) StopServer(ctx context.Context, name string) error {
 	return fmt.Errorf("boom")
 }
-func (e *errClient) AddServer(ctx context.Context, name, command string, args []string, env map[string]string) error {
+func (e *errClient) AddServer(ctx context.Context, req client.AddServerRequest) error {
 	return fmt.Errorf("boom")
 }

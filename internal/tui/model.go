@@ -19,7 +19,7 @@ type clientIface interface {
 	ServerLogs(ctx context.Context, name string) ([]string, error)
 	StartServer(ctx context.Context, name string) error
 	StopServer(ctx context.Context, name string) error
-	AddServer(ctx context.Context, name, command string, args []string, env map[string]string) error
+	AddServer(ctx context.Context, req client.AddServerRequest) error
 }
 
 // Model is the Bubble Tea model for the mcpeach TUI.
@@ -209,11 +209,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case addServerDoneMsg:
 		m.showForm = false
-		if msg.err == nil {
-			// Refresh the server list after a successful add.
-			return m, m.loadServersCmd()
+		if msg.err != nil {
+			m.err = msg.err.Error()
+			return m, nil
 		}
-		return m, nil
+		// Refresh the server list after a successful add.
+		return m, m.loadServersCmd()
 	case tea.KeyPressMsg:
 		switch msg.Code {
 		case tea.KeyUp:
