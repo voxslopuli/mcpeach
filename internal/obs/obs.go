@@ -3,25 +3,28 @@
 package obs
 
 import (
-	"log/slog"
-
+	charmlog "github.com/charmbracelet/log"
 	"github.com/mcpeach/mcpeach/internal/logs"
 )
 
 // ringCapacity is the number of log lines retained in memory.
 const ringCapacity = 1000
 
-// Logger wraps slog.Logger with a ring-buffer sink.
+// Logger wraps charmbracelet/log with a ring-buffer sink.
 type Logger struct {
-	*slog.Logger
+	*charmlog.Logger
 	ring *logs.Ring
 }
 
 // NewLogger builds a Logger that writes JSON into a bounded ring buffer.
 func NewLogger(component string) *Logger {
 	ring := logs.NewRing(ringCapacity)
-	h := slog.NewJSONHandler(ringWriter{ring: ring}, &slog.HandlerOptions{Level: slog.LevelInfo})
-	return &Logger{Logger: slog.New(h).With("component", component), ring: ring}
+	l := charmlog.NewWithOptions(ringWriter{ring: ring}, charmlog.Options{
+		Level:           charmlog.InfoLevel,
+		ReportTimestamp: true,
+	})
+	l.SetFormatter(charmlog.JSONFormatter)
+	return &Logger{Logger: l.With("component", component), ring: ring}
 }
 
 // Default returns a Logger for the "mcpeach" component.
