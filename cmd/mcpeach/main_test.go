@@ -308,17 +308,53 @@ func TestRunDaemonRemoteConnectFail(t *testing.T) {
 	}
 }
 
-func TestRunDaemonRemoteServer(t *testing.T) {
-	// A remote streamable-http server that connects successfully should be
-	// registered and its client closed on shutdown (no leak).
-	// Use a short runtime dir so the unix socket path stays under the 108-byte
-	// sun_path limit (t.TempDir() paths are too long).
-	dir := filepath.Join(os.TempDir(), "mcpeach-remote-test")
+// runDaemonAndWaitForTool starts runDaemon with the given config and polls the
+// control plane until the named tool appears (or the deadline passes).
+func runDaemonAndWaitForTool(t *testing.T, cfg *config.Config, wantTool string) {
+	t.Helper()
+	// short XDG dir for the unix socket path limit
+	dir := filepath.Join(os.TempDir(), "mcpeach-daemon-test")
 	_ = os.RemoveAll(dir)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("XDG_RUNTIME_DIR", dir)
+	if err := config.Save(config.Path(), cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- runDaemon(ctx) }()
+	// Poll for the tool with a bounded deadline (no fixed sleep).
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		c := client.NewUnix(config.SocketPath())
+		tools, err := c.ListTools(context.Background())
+		if err == nil {
+			for _, tool := range tools {
+				if tool == wantTool {
+					cancel()
+					select {
+					case err := <-errCh:
+						if err != nil {
+							t.Fatalf("runDaemon: %v", err)
+						}
+					case <-time.After(5 * time.Second):
+						t.Fatal("runDaemon did not return after cancel")
+					}
+					return
+				}
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	cancel()
+	t.Fatalf("tool %q did not appear within deadline", wantTool)
+}
 
+func TestRunDaemonRemoteServer(t *testing.T) {
+	// A remote streamable-http server that connects successfully should be
+	// registered and its client closed on shutdown (no leak).
 	// Spin up a real streamable-http MCP server on a free port.
 	ms := mcpserver.NewMCPServer("remote", "1.0.0")
 	ms.AddTool(mcp.NewTool("echo", mcp.WithString("text", mcp.Required())),
@@ -338,41 +374,7 @@ func TestRunDaemonRemoteServer(t *testing.T) {
 	cfg.Servers = map[string]config.ServerConfig{
 		"remote": {URL: "http://" + ln.Addr().String() + "/mcp", Transport: "streamable-http", Enabled: true},
 	}
-	if err := config.Save(config.Path(), cfg); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() { errCh <- runDaemon(ctx) }()
-
-	time.Sleep(500 * time.Millisecond)
-	c := client.NewUnix(config.SocketPath())
-	tools, err := c.ListTools(context.Background())
-	if err != nil {
-		t.Fatalf("ListTools: %v", err)
-	}
-	found := false
-	for _, t := range tools {
-		if t == "remote__echo" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("gateway tools = %v, want remote__echo", tools)
-	}
-
-	cancel()
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatalf("runDaemon: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("runDaemon did not return after cancel")
-	}
+	runDaemonAndWaitForTool(t, cfg, "remote__echo")
 }
 
 // runEWithNoConfig asserts that running cmd with args against an empty XDG
@@ -416,16 +418,8 @@ func TestStatusCmdRunEError(t *testing.T) {
 }
 
 func TestRunDaemonPopulatesGateway(t *testing.T) {
-	// Use a short runtime dir so the unix socket path stays under the 108-byte
-	// sun_path limit (t.TempDir() paths are too long).
-	dir := filepath.Join(os.TempDir(), "mcpeach-test")
-	_ = os.RemoveAll(dir)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	t.Setenv("XDG_RUNTIME_DIR", dir)
-
 	// Build the fake MCP server binary.
-	bin := filepath.Join(dir, "fake-mcp")
+	bin := filepath.Join(t.TempDir(), "fake-mcp")
 	cmd := exec.Command("go", "build", "-o", bin, "../../testdata/fake-mcp")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build fake server: %v\n%s", err, out)
@@ -437,44 +431,5 @@ func TestRunDaemonPopulatesGateway(t *testing.T) {
 	cfg.Servers = map[string]config.ServerConfig{
 		"fake": {Command: bin, Enabled: true},
 	}
-	if err := config.Save(config.Path(), cfg); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	errCh := make(chan error, 1)
-	go func() { errCh <- runDaemon(ctx) }()
-
-	// Give the daemon time to connect + discover tools, then query the control
-	// plane for the aggregated tool list.
-	time.Sleep(500 * time.Millisecond)
-	c := client.NewUnix(config.SocketPath())
-	tools, err := c.ListTools(context.Background())
-	if err != nil {
-		t.Fatalf("ListTools: %v", err)
-	}
-
-	// The fake server exposes one tool named "echo", canonicalized to "fake__echo".
-	found := false
-	for _, t := range tools {
-		if t == "fake__echo" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("gateway tools = %v, want fake__echo", tools)
-	}
-
-	cancel()
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatalf("runDaemon: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("runDaemon did not return after cancel")
-	}
+	runDaemonAndWaitForTool(t, cfg, "fake__echo")
 }
