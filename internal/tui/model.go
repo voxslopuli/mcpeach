@@ -33,8 +33,7 @@ type Model struct {
 	showTools bool
 	showForm  bool
 	form      *addServerForm
-	width     int
-	height    int
+	err       string
 }
 
 // NewModel builds a TUI model backed by the given control-plane client.
@@ -58,6 +57,7 @@ type serversLoadedMsg struct {
 // serverActionMsg is sent after a start/stop completes.
 type serverActionMsg struct {
 	name string
+	err  error
 }
 
 // logsLoadedMsg carries the result of a ServerLogs call.
@@ -122,20 +122,22 @@ func (m *Model) loadServersCmd() tea.Cmd {
 // startServerCmd returns a tea.Cmd that starts a server asynchronously.
 func (m *Model) startServerCmd(name string) tea.Cmd {
 	return func() tea.Msg {
+		var err error
 		if m.client != nil {
-			m.client.StartServer(context.Background(), name)
+			err = m.client.StartServer(context.Background(), name)
 		}
-		return serverActionMsg{name: name}
+		return serverActionMsg{name: name, err: err}
 	}
 }
 
 // stopServerCmd returns a tea.Cmd that stops a server asynchronously.
 func (m *Model) stopServerCmd(name string) tea.Cmd {
 	return func() tea.Msg {
+		var err error
 		if m.client != nil {
-			m.client.StopServer(context.Background(), name)
+			err = m.client.StopServer(context.Background(), name)
 		}
-		return serverActionMsg{name: name}
+		return serverActionMsg{name: name, err: err}
 	}
 }
 
@@ -194,7 +196,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.servers = msg.servers
 		return m, nil
 	case serverActionMsg:
-		// After a start/stop, refresh the server list.
+		// After a start/stop, refresh the server list. Surface any error.
+		if msg.err != nil {
+			m.err = msg.err.Error()
+		}
 		return m, m.loadServersCmd()
 	case logsLoadedMsg:
 		m.logLines = msg.lines
@@ -291,6 +296,9 @@ func (m *Model) View() tea.View {
 
 	for i, s := range m.servers {
 		b.WriteString(theme.renderServerRow(s.Name, s.State, i == m.selected) + "\n")
+	}
+	if m.err != "" {
+		b.WriteString("\n" + theme.Error.Render(m.err) + "\n")
 	}
 	b.WriteString("\n" + theme.Help.Render("↑/↓ select · enter start · space stop · l logs · t tools · a add · q quit"))
 	return tea.NewView(b.String())

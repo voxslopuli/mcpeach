@@ -50,7 +50,7 @@ func TestFindTools(t *testing.T) {
 			t.Error("no messages in request")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
 				{"message": map[string]any{"content": `["github__create_or_update_file", "context7__get-library-docs"]`}},
 			},
@@ -77,7 +77,7 @@ func TestFindTools(t *testing.T) {
 func TestFindToolsEmpty(t *testing.T) {
 	f := newTestFinder(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
 				{"message": map[string]any{"content": `[]`}},
 			},
@@ -96,7 +96,7 @@ func TestFindToolsFiltersUnknown(t *testing.T) {
 	// The LLM recommends a tool not in the catalog; it should be dropped.
 	f := newTestFinder(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
 				{"message": map[string]any{"content": `["known__tool", "unknown__tool"]`}},
 			},
@@ -115,7 +115,7 @@ func TestFindToolsMarkdownFence(t *testing.T) {
 	// The LLM wraps the JSON in a markdown code fence; it should be stripped.
 	f := newTestFinder(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
 				{"message": map[string]any{"content": "```json\n[\"a__t1\"]\n```"}},
 			},
@@ -134,7 +134,7 @@ func TestFindToolsDedupes(t *testing.T) {
 	// Duplicate tool names in the response should be returned once.
 	f := newTestFinder(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
 				{"message": map[string]any{"content": `["a__t1", "a__t1"]`}},
 			},
@@ -152,7 +152,7 @@ func TestFindToolsDedupes(t *testing.T) {
 func TestFindToolsNoChoices(t *testing.T) {
 	f := newTestFinder(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{}})
 	})
 	if _, err := f.FindTools(context.Background(), "q", []Tool{{Name: "a", Description: "a"}}); err == nil {
 		t.Fatal("FindTools with no choices: want error, got nil")
@@ -171,7 +171,7 @@ func TestFindToolsError(t *testing.T) {
 func TestFindToolsBadJSON(t *testing.T) {
 	f := newTestFinder(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"choices": [{"message": {"content": "not json"}}]}`))
+		_, _ = w.Write([]byte(`{"choices": [{"message": {"content": "not json"}}]}`))
 	})
 	if _, err := f.FindTools(context.Background(), "q", []Tool{{Name: "a", Description: "a"}}); err == nil {
 		t.Fatal("FindTools with bad JSON: want error, got nil")

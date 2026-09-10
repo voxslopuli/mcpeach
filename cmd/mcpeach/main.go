@@ -13,6 +13,7 @@ import (
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/control"
 	"github.com/mcpeach/mcpeach/internal/gateway"
+	"github.com/mcpeach/mcpeach/internal/secrets"
 	"github.com/mcpeach/mcpeach/internal/server"
 	"github.com/mcpeach/mcpeach/internal/service"
 )
@@ -57,10 +58,15 @@ func runDaemon(ctx context.Context) error {
 	}
 
 	mgr := server.NewManager()
+	res := secrets.NewResolver(secrets.NewKeyringStore())
 	for name, sc := range cfg.Servers {
 		mgr.Add(server.New(name))
 		if sc.Enabled {
-			if err := mgr.Start(ctx, name, sc.Command, nil); err != nil {
+			env, err := res.ResolveEnv(sc.Env)
+			if err != nil {
+				return fmt.Errorf("resolve env for %s: %w", name, err)
+			}
+			if err := mgr.Start(ctx, name, sc.Command, sc.Args, env); err != nil {
 				return fmt.Errorf("start %s: %w", name, err)
 			}
 		}
@@ -83,7 +89,7 @@ func runDaemon(ctx context.Context) error {
 	srv := &http.Server{Addr: cfg.Gateway.Addr, Handler: mux}
 	go func() {
 		<-ctx.Done()
-		srv.Close()
+		_ = srv.Close()
 	}()
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err

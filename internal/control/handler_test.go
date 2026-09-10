@@ -217,10 +217,10 @@ func TestProcesses(t *testing.T) {
 	// Start the server so it has a PID, then query /v0/processes.
 	srv := server.New("echo")
 	mgr.Add(srv)
-	if err := mgr.Start(context.Background(), "echo", "echo", nil); err != nil {
+	if err := mgr.Start(context.Background(), "echo", "echo", nil, nil); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	defer mgr.Stop("echo")
+	defer func() { _ = mgr.Stop("echo") }()
 
 	req := httptest.NewRequest(http.MethodGet, "/v0/processes", nil)
 	rec := httptest.NewRecorder()
@@ -436,7 +436,7 @@ func TestServeUnixSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}

@@ -57,6 +57,35 @@ func TestResolveEnvUnset(t *testing.T) {
 	}
 }
 
+func TestResolveEnvMap(t *testing.T) {
+	t.Setenv("MY_SECRET", "s3cret")
+	r := NewResolver(nil)
+	got, err := r.ResolveEnv(map[string]string{"TOKEN": "env:MY_SECRET", "PLAIN": "value"})
+	if err != nil {
+		t.Fatalf("ResolveEnv: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ResolveEnv = %v, want 2 entries", got)
+	}
+	seen := map[string]bool{}
+	for _, e := range got {
+		seen[e] = true
+	}
+	if !seen["TOKEN=s3cret"] {
+		t.Errorf("ResolveEnv missing TOKEN=s3cret: %v", got)
+	}
+	if !seen["PLAIN=value"] {
+		t.Errorf("ResolveEnv missing PLAIN=value: %v", got)
+	}
+}
+
+func TestResolveEnvMapError(t *testing.T) {
+	r := NewResolver(nil)
+	if _, err := r.ResolveEnv(map[string]string{"TOKEN": "env:DOES_NOT_EXIST_XYZ"}); err == nil {
+		t.Fatal("ResolveEnv with unset env: want error, got nil")
+	}
+}
+
 func TestResolveKeychain(t *testing.T) {
 	store := &fakeStore{values: map[string]string{"mcpeach/github": "ksecret"}}
 	r := NewResolver(store)

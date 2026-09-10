@@ -53,8 +53,8 @@ func (m *Manager) Server(name string) *Server {
 }
 
 // Start launches a stdio subprocess for the named server and captures its
-// stderr into the server's log ring.
-func (m *Manager) Start(ctx context.Context, name, command string, env []string) error {
+// stderr into the server's log ring. args are appended to the command.
+func (m *Manager) Start(ctx context.Context, name, command string, args, env []string) error {
 	m.mu.Lock()
 	srv, ok := m.servers[name]
 	if !ok {
@@ -70,14 +70,14 @@ func (m *Manager) Start(ctx context.Context, name, command string, env []string)
 	// command is a user-authored MCP server binary path from the user's own
 	// config file, not untrusted input. exec.CommandContext does not invoke a
 	// shell, so there is no shell-metacharacter injection vector.
-	cmd := exec.CommandContext(ctx, command) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command, go_subproc_rule-subproc
+	cmd := exec.CommandContext(ctx, command, args...) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command, go_subproc_rule-subproc
 	cmd.Env = env
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("stderr pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		srv.Fail()
+		_ = srv.Fail()
 		return fmt.Errorf("start %q: %w", name, err)
 	}
 
@@ -85,7 +85,7 @@ func (m *Manager) Start(ctx context.Context, name, command string, env []string)
 	go scanLines(stderr, ring)
 
 	m.mu.Lock()
-	m.procs[name] = &proc{cmd: cmd, stop: func() { cmd.Process.Kill() }}
+	m.procs[name] = &proc{cmd: cmd, stop: func() { _ = cmd.Process.Kill() }}
 	m.mu.Unlock()
 
 	if err := srv.Start(); err != nil {
@@ -113,7 +113,7 @@ func (m *Manager) Stop(name string) error {
 	if p.stop != nil {
 		p.stop()
 	}
-	p.cmd.Wait()
+	_ = p.cmd.Wait()
 	return srv.Stop()
 }
 

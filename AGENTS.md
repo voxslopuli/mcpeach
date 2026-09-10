@@ -36,8 +36,19 @@ and exposes curated tool groups to clients. Written in Go.
   explicitly authorizes committing with a known-failing gate.
 - One PR per phase. Conventional commits (`feat(scope):`, `fix(scope):`, `chore(scope):`).
 - Tool names canonicalized as `<server>__<tool>`.
+- Server names must NOT contain `__` (reserved for tool canonicalization).
 - Config lives at `~/.config/mcpeach/mcpeach.yml` (XDG).
 - Use `mark3labs/mcp-go` for MCP protocol; do not hand-roll the protocol.
+
+## Security
+
+- The control-plane unix socket (`XDG_RUNTIME_DIR/mcpeach/mcpeach.sock`) is
+  mode `0600` (owner-only). Any process running as the same user can start/stop
+  servers and execute configured commands with that user's privileges.
+- Run the mcpeach daemon as the same user who owns the config file; do not run
+  as root unless necessary.
+- The daemon executes server commands with the same privilege level as the
+  mcpeach process.
 
 ## Boundaries
 

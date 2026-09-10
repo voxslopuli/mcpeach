@@ -139,6 +139,9 @@ func TestValidate(t *testing.T) {
 		{"server bad tool mode", func(c *Config) {
 			c.Servers["bad"] = ServerConfig{Command: "x", Enabled: true, Tools: ToolConfig{Mode: "bogus"}}
 		}, true},
+		{"server name with double underscore", func(c *Config) {
+			c.Servers["a__b"] = ServerConfig{Command: "x", Enabled: true}
+		}, true},
 		{"group references missing server", func(c *Config) {
 			c.Groups["g"] = GroupConfig{IncludedServers: []string{"nope"}}
 		}, true},

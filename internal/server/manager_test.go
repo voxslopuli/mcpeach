@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -26,7 +27,7 @@ func TestManagerStartStop(t *testing.T) {
 	srv := New("fake")
 	m.Add(srv)
 
-	if err := m.Start(context.Background(), "fake", bin, nil); err != nil {
+	if err := m.Start(context.Background(), "fake", bin, nil, nil); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	if srv.State() != Running {
@@ -43,7 +44,7 @@ func TestManagerStartStop(t *testing.T) {
 
 func TestManagerStartUnknown(t *testing.T) {
 	m := NewManager()
-	if err := m.Start(context.Background(), "nope", "echo", nil); err == nil {
+	if err := m.Start(context.Background(), "nope", "echo", nil, nil); err == nil {
 		t.Fatal("Start unknown server: want error, got nil")
 	}
 }
@@ -63,13 +64,13 @@ func TestManagerRestart(t *testing.T) {
 	srv := New("fake")
 	m.Add(srv)
 
-	if err := m.Start(context.Background(), "fake", bin, nil); err != nil {
+	if err := m.Start(context.Background(), "fake", bin, nil, nil); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	if err := m.Stop("fake"); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	if err := m.Start(context.Background(), "fake", bin, nil); err != nil {
+	if err := m.Start(context.Background(), "fake", bin, nil, nil); err != nil {
 		t.Fatalf("Restart: %v", err)
 	}
 	if srv.State() != Running {
@@ -83,10 +84,10 @@ func TestManagerCapturesOutput(t *testing.T) {
 	srv := New("fake")
 	m.Add(srv)
 
-	if err := m.Start(context.Background(), "fake", bin, nil); err != nil {
+	if err := m.Start(context.Background(), "fake", bin, nil, nil); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	defer m.Stop("fake")
+	defer func() { _ = m.Stop("fake") }()
 
 	// Give the fake server time to emit a log line.
 	deadline := time.Now().Add(2 * time.Second)
@@ -99,6 +100,30 @@ func TestManagerCapturesOutput(t *testing.T) {
 	if len(m.Logs("fake")) == 0 {
 		t.Fatal("expected captured log output, got none")
 	}
+}
+
+func TestManagerPassesArgs(t *testing.T) {
+	bin := buildFakeServer(t)
+	m := NewManager()
+	srv := New("fake")
+	m.Add(srv)
+
+	// Start with args and verify they reach the subprocess via the log line.
+	if err := m.Start(context.Background(), "fake", bin, []string{"--flag", "value"}, nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = m.Stop("fake") }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, line := range m.Logs("fake") {
+			if strings.Contains(line, "--flag") && strings.Contains(line, "value") {
+				return // args reached the subprocess
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("args not passed to subprocess; logs: %v", m.Logs("fake"))
 }
 
 func TestManagerLogsUnknown(t *testing.T) {

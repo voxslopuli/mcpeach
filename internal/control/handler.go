@@ -215,7 +215,7 @@ func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := h.mgr.Start(r.Context(), name, sc.Command, env); err != nil {
+	if err := h.mgr.Start(r.Context(), name, sc.Command, sc.Args, env); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -224,15 +224,7 @@ func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {
 
 // resolveEnv resolves any env:/keychain: references in the server's env vars.
 func (h *Handler) resolveEnv(env map[string]string) ([]string, error) {
-	out := make([]string, 0, len(env))
-	for k, v := range env {
-		resolved, err := h.res.Resolve(v)
-		if err != nil {
-			return nil, fmt.Errorf("env %s: %w", k, err)
-		}
-		out = append(out, k+"="+resolved)
-	}
-	return out, nil
+	return h.res.ResolveEnv(env)
 }
 
 func (h *Handler) stopServer(w http.ResponseWriter, r *http.Request) {
@@ -257,7 +249,7 @@ func (h *Handler) stopServer(w http.ResponseWriter, r *http.Request) {
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {
@@ -283,23 +275,23 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 	// Remove a stale socket file if present.
-	os.Remove(s.sock)
+	_ = os.Remove(s.sock)
 	ln, err := net.Listen("unix", s.sock)
 	if err != nil {
 		return err
 	}
 	// Restrict the socket to the owner: it can start/stop processes.
 	if err := os.Chmod(s.sock, 0o600); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return err
 	}
 	s.httpSrv = &http.Server{Handler: s.handler}
 	go func() {
 		<-ctx.Done()
-		s.httpSrv.Close()
-		os.Remove(s.sock)
+		_ = s.httpSrv.Close()
+		_ = os.Remove(s.sock)
 	}()
-	go s.httpSrv.Serve(ln)
+	go func() { _ = s.httpSrv.Serve(ln) }()
 	return nil
 }
 

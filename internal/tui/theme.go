@@ -14,6 +14,7 @@ type Theme struct {
 	Stopped  lipgloss.Style
 	Help     lipgloss.Style
 	Header   lipgloss.Style
+	Error    lipgloss.Style
 }
 
 // DefaultTheme returns the mcpeach color theme.
@@ -25,6 +26,7 @@ func DefaultTheme() Theme {
 		Stopped:  lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
 		Help:     lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
 		Header:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")),
+		Error:    lipgloss.NewStyle().Foreground(lipgloss.Color("196")),
 	}
 }
 
