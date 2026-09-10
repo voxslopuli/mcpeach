@@ -328,3 +328,6 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.toptal.com/developers/gitignore/api/node,windows,macos,linux,go,test
+
+# mcpeach build artifacts
+fake-mcp

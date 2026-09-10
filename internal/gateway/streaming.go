@@ -15,6 +15,7 @@ import (
 type StreamingServer struct {
 	mcpServer *server.MCPServer
 	http      *server.StreamableHTTPServer
+	gw        *Gateway
 }
 
 // NewStreamingServer builds a streamable-HTTP MCP server from the gateway,
@@ -25,17 +26,33 @@ func NewStreamingServer(g *Gateway, name, version string) *StreamingServer {
 		version,
 		server.WithToolFilter(g.ToolFilterFunc()),
 	)
-	// Register the aggregated tools with a handler that routes the call back to
-	// the originating server via the gateway. The tool filter governs which are
-	// visible/invocable.
-	for _, t := range g.Tools() {
+	s := &StreamingServer{mcpServer: mcpServer, gw: g}
+	s.SyncTools()
+	httpSrv := server.NewStreamableHTTPServer(mcpServer)
+	s.http = httpSrv
+	return s
+}
+
+// SyncTools re-registers the gateway's current tools on the MCP server. It is
+// called at construction and should be called after the gateway topology
+// changes (e.g. a server is started at runtime) so newly discovered tools are
+// exposed without rebuilding the streaming server.
+func (s *StreamingServer) SyncTools() {
+	if s.gw == nil {
+		return
+	}
+	tools := s.gw.Tools()
+	st := make([]server.ServerTool, 0, len(tools))
+	for _, t := range tools {
 		tool := t
-		mcpServer.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return g.CallTool(ctx, req)
+		st = append(st, server.ServerTool{
+			Tool: tool,
+			Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				return s.gw.CallTool(ctx, req)
+			},
 		})
 	}
-	httpSrv := server.NewStreamableHTTPServer(mcpServer)
-	return &StreamingServer{mcpServer: mcpServer, http: httpSrv}
+	s.mcpServer.SetTools(st...)
 }
 
 // ServeHTTP implements http.Handler, mounting the MCP endpoint at /mcp.

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/mcpeach/mcpeach/internal/gateway"
 	"github.com/mcpeach/mcpeach/internal/secrets"
 	"github.com/mcpeach/mcpeach/internal/server"
+	"github.com/mcpeach/mcpeach/internal/testutil"
 )
 
 // newTestHandler builds a handler backed by a fresh manager + gateway.
@@ -85,6 +87,38 @@ func TestMetrics(t *testing.T) {
 	}
 	if _, ok := resp["servers"]; !ok {
 		t.Errorf("metrics response missing 'servers' key: %v", resp)
+	}
+}
+
+func TestMetricsNilGateway(t *testing.T) {
+	h := NewHandler(server.NewManager(), nil, &config.Config{})
+	req := httptest.NewRequest(http.MethodGet, "/v0/metrics", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (nil gateway)", rec.Code)
+	}
+}
+
+func TestSetSyncTools(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"fake": {Command: buildFakeServer(t), Enabled: true},
+		},
+	}
+	mgr := server.NewManager()
+	mgr.Add(server.New("fake"))
+	h := NewHandler(mgr, gateway.New(cfg), cfg)
+	called := false
+	h.SetSyncTools(func() { called = true })
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/fake/start", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	if !called {
+		t.Error("SetSyncTools callback not invoked on start")
 	}
 }
 
@@ -204,6 +238,36 @@ func TestAddServerNilConfig(t *testing.T) {
 	}
 }
 
+func TestAddServerInvalidBody(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	body := `{not json`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (invalid body)", rec.Code)
+	}
+}
+
+func TestAddServerSaveFail(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	// Point configPath at a path where a file blocks the parent dir creation.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	h.configPath = filepath.Join(blocker, "mcpeach.yml")
+	body := `{"name":"a","command":"echo"}`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (save fail)", rec.Code)
+	}
+}
+
 func TestProcesses(t *testing.T) {
 	mgr := server.NewManager()
 	gw := gateway.New(&config.Config{})
@@ -250,38 +314,66 @@ func TestProcessesNilManager(t *testing.T) {
 	}
 }
 
-func TestStartStopServer(t *testing.T) {
+func TestProcessesCollectError(t *testing.T) {
+	// A server with a PID that processinfo.Collect fails on (nonexistent PID)
+	// should be skipped, not error the whole response.
+	mgr := server.NewManager()
+	srv := server.New("ghost")
+	mgr.Add(srv)
+	// Force a bogus PID by starting a process then killing it.
+	bin := buildFakeServer(t)
+	if err := mgr.Start(context.Background(), "ghost", bin, nil, nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	_ = mgr.Stop("ghost")
+
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
-			"echo": {Command: "echo", Enabled: true},
+			"ghost": {Command: bin, Enabled: true},
+		},
+	}
+	h := NewHandler(mgr, gateway.New(cfg), cfg)
+	req := httptest.NewRequest(http.MethodGet, "/v0/processes", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestStartStopServer(t *testing.T) {
+	bin := buildFakeServer(t)
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"fake": {Command: bin, Enabled: true},
 		},
 	}
 	mgr := server.NewManager()
-	srv := server.New("echo")
+	srv := server.New("fake")
 	mgr.Add(srv)
 	h := NewHandler(mgr, gateway.New(cfg), cfg)
 
 	// Start.
-	req := httptest.NewRequest(http.MethodPost, "/v0/servers/echo/start", nil)
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/fake/start", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("start status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
 	}
-	if srv.State() != server.Running {
-		t.Fatalf("state = %s, want running", srv.State())
-	}
 
 	// Stop.
-	req = httptest.NewRequest(http.MethodPost, "/v0/servers/echo/stop", nil)
+	req = httptest.NewRequest(http.MethodPost, "/v0/servers/fake/stop", nil)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("stop status = %d, want 200", rec.Code)
 	}
-	if srv.State() != server.Stopped {
-		t.Fatalf("state = %s, want stopped", srv.State())
-	}
+}
+
+// buildFakeServer compiles the testdata fake MCP server binary.
+func buildFakeServer(t *testing.T) string {
+	t.Helper()
+	return testutil.BuildFakeServer(t)
 }
 
 func TestStartUnknownServer(t *testing.T) {

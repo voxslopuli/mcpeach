@@ -163,6 +163,35 @@ func TestGatewayToolFilterFuncBlocks(t *testing.T) {
 	}
 }
 
+func TestGatewayCloseClient(t *testing.T) {
+	g := New(&config.Config{})
+	// Register a client that tracks Close.
+	fc := &fakeToolCaller{}
+	g.RegisterClient("a", fc)
+	g.CloseClient("a")
+	if !fc.closed {
+		t.Error("CloseClient did not close the client")
+	}
+	// Closing again is a no-op.
+	g.CloseClient("a")
+}
+
+func TestGatewayMetrics(t *testing.T) {
+	g := New(&config.Config{})
+	// Metrics on an empty gateway should not panic.
+	_ = g.Metrics()
+}
+
+// fakeToolCaller is a ToolCaller that records Close.
+type fakeToolCaller struct {
+	closed bool
+}
+
+func (f *fakeToolCaller) CallTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return mcp.NewToolResultText("ok"), nil
+}
+func (f *fakeToolCaller) Close() error { f.closed = true; return nil }
+
 func TestGatewayConcurrent(t *testing.T) {
 	g := New(&config.Config{
 		Servers: map[string]config.ServerConfig{

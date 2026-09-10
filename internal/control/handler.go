@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mcpeach/mcpeach/internal/config"
+	"github.com/mcpeach/mcpeach/internal/connect"
 	"github.com/mcpeach/mcpeach/internal/gateway"
 	"github.com/mcpeach/mcpeach/internal/obs"
 	"github.com/mcpeach/mcpeach/internal/processinfo"
@@ -53,11 +55,24 @@ type Handler struct {
 	configPath string
 	log        *obs.Logger
 	res        *secrets.Resolver
+	syncTools  func()
+	mux        *http.ServeMux
+}
+
+// SetSyncTools registers a callback invoked after the gateway topology changes
+// (e.g. a server is started) so the streaming server re-exposes new tools.
+func (h *Handler) SetSyncTools(fn func()) {
+	h.syncTools = fn
+}
+
+// ServeHTTP implements http.Handler, dispatching to the control-plane routes.
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.mux.ServeHTTP(w, r)
 }
 
 // NewHandler builds a control-plane handler. The config is saved to
 // config.Path() when servers are added.
-func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) http.Handler {
+func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) *Handler {
 	h := &Handler{mgr: mgr, gw: gw, cfg: cfg, configPath: config.Path(), log: obs.Default().With("pkg", "control"), res: secrets.NewResolver(secrets.NewKeyringStore())}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v0/servers", h.listServers)
@@ -69,7 +84,8 @@ func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) ht
 	mux.HandleFunc("GET /v0/servers/{name}/logs", h.serverLogs)
 	mux.HandleFunc("POST /v0/servers/{name}/start", h.startServer)
 	mux.HandleFunc("POST /v0/servers/{name}/stop", h.stopServer)
-	return mux
+	h.mux = mux
+	return h
 }
 
 func (h *Handler) listServers(w http.ResponseWriter, r *http.Request) {
@@ -215,9 +231,34 @@ func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := h.mgr.Start(r.Context(), name, sc.Command, sc.Args, env); err != nil {
+
+	// Close any existing client before reconnecting to avoid leaking a
+	// subprocess or SSE connection if start is called twice.
+	if h.gw != nil {
+		h.gw.CloseClient(name)
+	}
+
+	// Connect the upstream server and register its tools + client with the
+	// gateway so the aggregated endpoint exposes them.
+	caller, tools, err := connect.Connect(r.Context(), sc, env)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if h.gw != nil {
+		h.gw.RegisterClient(name, caller)
+		for _, t := range tools {
+			h.gw.RegisterTool(name, t)
+		}
+	}
+	if h.mgr != nil {
+		if err := h.mgr.MarkRunning(name); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if h.syncTools != nil {
+		h.syncTools()
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
 }
@@ -239,9 +280,14 @@ func (h *Handler) stopServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "manager not available")
 		return
 	}
-	if err := h.mgr.Stop(name); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+	if h.gw != nil {
+		h.gw.CloseClient(name)
+	}
+	if h.mgr != nil {
+		if err := h.mgr.MarkStopped(name); err != nil && !strings.Contains(err.Error(), "not running") {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 }

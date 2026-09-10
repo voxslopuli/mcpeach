@@ -2,23 +2,17 @@ package server
 
 import (
 	"context"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mcpeach/mcpeach/internal/testutil"
 )
 
 // buildFakeServer compiles the testdata fake MCP server binary.
 func buildFakeServer(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "fake-mcp")
-	cmd := exec.Command("go", "build", "-o", bin, "../../testdata/fake-mcp")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build fake server: %v\n%s", err, out)
-	}
-	return bin
+	return testutil.BuildFakeServer(t)
 }
 
 func TestManagerStartStop(t *testing.T) {
@@ -99,6 +93,94 @@ func TestManagerCapturesOutput(t *testing.T) {
 	}
 	if len(m.Logs("fake")) == 0 {
 		t.Fatal("expected captured log output, got none")
+	}
+}
+
+func TestManagerCaptureLogs(t *testing.T) {
+	m := NewManager()
+	m.Add(New("fake"))
+
+	// Feed a line into the ring via CaptureLogs and verify it's retrievable.
+	m.CaptureLogs("fake", strings.NewReader("hello\n"))
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(m.Logs("fake")) > 0 {
+			if m.Logs("fake")[0] != "hello" {
+				t.Fatalf("log = %q, want hello", m.Logs("fake")[0])
+			}
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("CaptureLogs did not feed the ring")
+}
+
+func TestManagerCaptureLogsUnknown(t *testing.T) {
+	// Capturing logs for an unknown server should be a no-op (no panic).
+	m := NewManager()
+	m.CaptureLogs("nope", strings.NewReader("x\n"))
+}
+
+func TestManagerServer(t *testing.T) {
+	m := NewManager()
+	m.Add(New("fake"))
+	if s := m.Server("fake"); s == nil {
+		t.Fatal("Server(fake) = nil, want non-nil")
+	}
+	if s := m.Server("nope"); s != nil {
+		t.Fatalf("Server(nope) = %v, want nil", s)
+	}
+}
+
+func TestManagerPID(t *testing.T) {
+	bin := buildFakeServer(t)
+	m := NewManager()
+	m.Add(New("fake"))
+
+	// Not running → PID 0.
+	if pid := m.PID("fake"); pid != 0 {
+		t.Fatalf("PID not running = %d, want 0", pid)
+	}
+
+	if err := m.Start(context.Background(), "fake", bin, nil, nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = m.Stop("fake") }()
+
+	if pid := m.PID("fake"); pid == 0 {
+		t.Fatal("PID running = 0, want non-zero")
+	}
+}
+
+func TestManagerMarkRunningStopped(t *testing.T) {
+	m := NewManager()
+	m.Add(New("fake"))
+
+	// MarkRunning transitions to running.
+	if err := m.MarkRunning("fake"); err != nil {
+		t.Fatalf("MarkRunning: %v", err)
+	}
+	if s := m.Server("fake"); s.State() != Running {
+		t.Fatalf("state = %s, want running", s.State())
+	}
+
+	// MarkStopped transitions back to stopped.
+	if err := m.MarkStopped("fake"); err != nil {
+		t.Fatalf("MarkStopped: %v", err)
+	}
+	if s := m.Server("fake"); s.State() != Stopped {
+		t.Fatalf("state = %s, want stopped", s.State())
+	}
+}
+
+func TestManagerMarkUnknown(t *testing.T) {
+	m := NewManager()
+	if err := m.MarkRunning("nope"); err == nil {
+		t.Fatal("MarkRunning unknown: want error, got nil")
+	}
+	if err := m.MarkStopped("nope"); err == nil {
+		t.Fatal("MarkStopped unknown: want error, got nil")
 	}
 }
 
