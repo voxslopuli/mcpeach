@@ -197,7 +197,7 @@ func importCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := mcpconfig.Import(args[0], cfg); err != nil {
+			if _, err := mcpconfig.Import(args[0], cfg); err != nil {
 				return err
 			}
 			return config.Save(config.Path(), cfg)

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -107,5 +109,34 @@ func TestProgramStartStop(t *testing.T) {
 	case <-stopped:
 	case <-time.After(time.Second):
 		t.Fatal("Stop did not invoke stop")
+	}
+}
+
+func TestProgramConcurrentStartStopIdempotent(t *testing.T) {
+	var stopCalls int32
+	p := &Program{
+		run: func(ctx context.Context) error {
+			<-ctx.Done()
+			return nil
+		},
+		stop: func() { atomic.AddInt32(&stopCalls, 1) },
+	}
+
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_ = p.Start(nil)
+		}()
+		go func() {
+			defer wg.Done()
+			_ = p.Stop(nil)
+		}()
+	}
+	wg.Wait()
+
+	if got := atomic.LoadInt32(&stopCalls); got != 1 {
+		t.Errorf("stop hook calls = %d, want 1 (idempotent shutdown)", got)
 	}
 }

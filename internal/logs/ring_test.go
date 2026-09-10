@@ -42,3 +42,16 @@ func TestRingCapacityOne(t *testing.T) {
 		t.Errorf("Lines = %v, want [b]", got)
 	}
 }
+
+func TestRingRejectsNonpositiveCapacity(t *testing.T) {
+	for _, cap := range []int{0, -1, -100} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("NewRing(%d): want panic, got nil", cap)
+				}
+			}()
+			NewRing(cap)
+		}()
+	}
+}

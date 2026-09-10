@@ -25,23 +25,28 @@ type claudeDoc struct {
 }
 
 // Import reads a Claude Code MCP config JSON file and merges its servers into
-// cfg, preserving existing servers. Conflicts (same name) are overwritten.
-func Import(path string, cfg *config.Config) error {
+// cfg, preserving existing servers. Servers whose names already exist in cfg
+// are overwritten; the returned slice names each overwritten server.
+func Import(path string, cfg *config.Config) ([]string, error) {
 	if cfg == nil {
-		return fmt.Errorf("config is nil")
+		return nil, fmt.Errorf("config is nil")
 	}
 	if cfg.Servers == nil {
 		cfg.Servers = make(map[string]config.ServerConfig)
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var doc claudeDoc
 	if err := json.Unmarshal(b, &doc); err != nil {
-		return fmt.Errorf("parse %s: %w", path, err)
+		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
+	var conflicts []string
 	for name, cs := range doc.MCPServers {
+		if _, exists := cfg.Servers[name]; exists {
+			conflicts = append(conflicts, name)
+		}
 		sc := config.ServerConfig{
 			Command: cs.Command,
 			Args:    cs.Args,
@@ -61,11 +66,14 @@ func Import(path string, cfg *config.Config) error {
 		}
 		cfg.Servers[name] = sc
 	}
-	return nil
+	return conflicts, nil
 }
 
 // Export writes cfg's servers to a Claude Code MCP config JSON file.
 func Export(path string, cfg *config.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
 	doc := claudeDoc{MCPServers: map[string]claudeServer{}}
 	for name, sc := range cfg.Servers {
 		cs := claudeServer{

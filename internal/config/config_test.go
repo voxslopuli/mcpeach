@@ -218,6 +218,21 @@ func TestSaveCreatesDir(t *testing.T) {
 	}
 }
 
+func TestSaveCreatesPrivateDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "nested", "deep")
+	path := filepath.Join(dir, "mcpeach.yml")
+	if err := Save(path, Default()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat dir: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf("dir mode = %o, want 700", perm)
+	}
+}
+
 func TestSplitCanonical(t *testing.T) {
 	tests := []struct {
 		name       string

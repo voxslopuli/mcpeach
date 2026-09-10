@@ -1,7 +1,10 @@
 // Package logs provides a bounded ring buffer for capturing server output.
 package logs
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 // Ring is a fixed-capacity, thread-safe ring buffer of strings.
 type Ring struct {
@@ -11,8 +14,12 @@ type Ring struct {
 	full bool
 }
 
-// NewRing returns a Ring that retains at most capacity entries.
+// NewRing returns a Ring that retains at most capacity entries. It panics
+// when capacity is nonpositive: a zero-capacity buffer cannot accept writes.
 func NewRing(capacity int) *Ring {
+	if capacity <= 0 {
+		panic(fmt.Sprintf("logs: NewRing capacity must be positive, got %d", capacity))
+	}
 	return &Ring{buf: make([]string, capacity)}
 }
 
