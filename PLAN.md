@@ -114,6 +114,55 @@ groups:
 - Group endpoints each mount a filtered view (mcp-go `WithToolFilter` per session/route).
 - The gateway itself exposes the tool-finder meta-tools.
 
+### Single local streaming MCP server interface
+
+The gateway is mounted as **one** local `NewStreamableHTTPServer` (mcp-go) that
+re-exposes every configured server — stdio subprocesses, remote SSE, and remote
+streamable-HTTP — behind a single streamable-HTTP endpoint. Clients (Claude,
+Cursor, agents) connect to `http://127.0.0.1:8080/mcp` (and per-group
+`/v0/groups/{name}/mcp`) and see one unified MCP server. The unix socket is
+**only** the control plane (TUI↔daemon); it is not the client-facing MCP
+interface.
+
+- **stdio** servers: spawned by the server manager, connected via mcp-go
+  `NewStdioMCPClient`.
+- **remote SSE** servers: connected via mcp-go `NewSSEMCPClient`.
+- **remote streamable-HTTP** servers: connected via mcp-go
+  `NewStreamableHttpClient`.
+- All three are aggregated into the gateway and re-exposed as one local
+  streamable-HTTP MCP server.
+
+## Import / Export (Claude Code mcp config JSON)
+
+`mcpeach import` / `mcpeach export` read and write JSON files conforming to the
+Claude Code MCP config format (`.mcp.json` / `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "..." }
+    },
+    "context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "type": "http"
+    }
+  }
+}
+```
+
+- **Import**: parse the Claude Code JSON, map each entry to a `ServerConfig`
+  (stdio `command`/`args`/`env`; remote `url`/`type` → `transport`), merge into
+  the mcpeach config, and save. Preserves existing servers; conflicts are
+  reported.
+- **Export**: serialize the mcpeach `servers` map back to the Claude Code JSON
+  format, so a user can point Claude Desktop / Claude Code at the same servers
+  (or at the mcpeach gateway itself).
+- Round-trip fidelity: import→export is lossless for the fields Claude Code
+  supports.
+
 ## LLM Tool-Finder — Search-and-Load Architecture
 
 Two meta-tools exposed on the gateway (and reusable via TUI):
@@ -152,8 +201,10 @@ Two meta-tools exposed on the gateway (and reusable via TUI):
 | 1 | Config: YAML schema, load/save/validate, XDG | round-trip, validation |
 | 2 | Server manager: spawn/capture/stop/restart, state machine, remote conns | fake MCP server binary; lifecycle |
 | 3 | Gateway + permission: aggregation, canonicalization, allow/block, groups | filtering, group resolution, collisions |
+| 3b | Gateway streaming interface: mount as one local streamable-HTTP MCP server; connect stdio/SSE/streamable-HTTP clients | end-to-end client↔gateway round-trip |
 | 4 | Control plane: unix-socket API + client | handler + client round-trip |
 | 5 | LLM tool-finder: OpenAI client, search+load meta-tools, description enrichment, validation | mock endpoint; prompt/parse; retrieval/validation |
+| 5b | Import/export: Claude Code mcp config JSON ↔ mcpeach config | round-trip, merge, conflict |
 | 6 | TUI: list/detail/toggles/log viewer/forms | model state transitions |
 | 7 | Service install: kardianos/service | config gen |
 | 8 | Polish: theme, help, docs, final CI | — |
