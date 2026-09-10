@@ -110,14 +110,20 @@ func (h *Handler) listServers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// addServer adds a new server to the config and persists it.
+// addServer adds a new server to the config and persists it. The mutation is
+// transactional: a candidate copy is validated and persisted before being
+// published to the active config, so a failed save leaves both disk and
+// in-memory state unchanged. The whole sequence is guarded by the handler
+// mutex so concurrent adds cannot race or lose updates.
+// addServer adds a new server to the config and persists it. The mutation is
+// transactional: a candidate copy is validated and persisted before being
+// published to the active config, so a failed save leaves both disk and
+// in-memory state unchanged. The whole sequence is guarded by the handler
+// mutex so concurrent adds cannot race or lose updates. The lock is held
+// across config.Save deliberately: releasing it would open a lost-update
+// window between save and publish. The write is a small local YAML file on
+// the owner-only control socket, so the brief reader block is acceptable.
 func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.cfg == nil {
-		writeError(w, http.StatusInternalServerError, "config not available")
-		return
-	}
 	// Bound the request body to prevent memory exhaustion on the control socket.
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req AddServerRequest
@@ -139,6 +145,14 @@ func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Command == "" && req.URL == "" {
 		writeError(w, http.StatusBadRequest, "must set command or url")
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.cfg == nil {
+		writeError(w, http.StatusInternalServerError, "config not available")
 		return
 	}
 	if _, exists := h.cfg.Servers[req.Name]; exists {

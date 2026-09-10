@@ -803,3 +803,55 @@ func TestServerStartSetsTimeouts(t *testing.T) {
 		t.Errorf("IdleTimeout = %v, want 60s", srv.httpSrv.IdleTimeout)
 	}
 }
+
+// addServerReq issues an add-server request against the handler.
+func addServerReq(h *Handler, name string) {
+	body := fmt.Sprintf(`{"name":%q,"command":"echo"}`, name)
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+}
+
+// TestConcurrentControlOps exercises concurrent add/list/start/stop on the
+// handler. It would race before the handler mutex + per-server mutexes.
+func TestConcurrentControlOps(t *testing.T) {
+	cfg := config.Default()
+	mgr := server.NewManager()
+	gw := gateway.New(cfg)
+	h := NewHandler(mgr, gw, cfg)
+	h.configPath = filepath.Join(t.TempDir(), "mcpeach.yml")
+
+	// Concurrent adds must not race on h.cfg.Servers or lose updates.
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			addServerReq(h, fmt.Sprintf("srv%d", i))
+		}(i)
+	}
+	wg.Wait()
+
+	// All 10 servers should be present.
+	if len(cfg.Servers) != 10 {
+		t.Fatalf("Servers = %d, want 10", len(cfg.Servers))
+	}
+
+	// Concurrent list + add of a new server must not race.
+	var wg2 sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg2.Add(1)
+		go func(i int) {
+			defer wg2.Done()
+			req := httptest.NewRequest(http.MethodGet, "/v0/servers", nil)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			addServerReq(h, fmt.Sprintf("extra%d", i))
+		}(i)
+	}
+	wg2.Wait()
+
+	if len(cfg.Servers) != 20 {
+		t.Fatalf("Servers = %d, want 20", len(cfg.Servers))
+	}
+}
