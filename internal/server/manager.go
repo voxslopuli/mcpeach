@@ -45,6 +45,13 @@ func (m *Manager) Add(s *Server) {
 	m.logs[s.Name()] = logs.NewRing(logCapacity)
 }
 
+// Server returns the registered server by name, or nil if unknown.
+func (m *Manager) Server(name string) *Server {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.servers[name]
+}
+
 // Start launches a stdio subprocess for the named server and captures its
 // stderr into the server's log ring.
 func (m *Manager) Start(ctx context.Context, name, command string, env []string) error {
