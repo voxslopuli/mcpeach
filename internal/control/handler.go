@@ -110,10 +110,12 @@ func (h *Handler) listServers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// addServer adds a new server to the config and persists it.
+// addServer adds a new server to the config and persists it. The mutation is
+// transactional: a candidate copy is validated and persisted before being
+// published to the active config, so a failed save leaves both disk and
+// in-memory state unchanged. The whole sequence is guarded by the handler
+// mutex so concurrent adds cannot race or lose updates.
 func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	if h.cfg == nil {
 		writeError(w, http.StatusInternalServerError, "config not available")
 		return
@@ -141,6 +143,10 @@ func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "must set command or url")
 		return
 	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if _, exists := h.cfg.Servers[req.Name]; exists {
 		writeError(w, http.StatusConflict, "server already exists")
 		return

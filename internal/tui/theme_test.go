@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/mattn/go-runewidth"
 )
 
 func TestDefaultTheme(t *testing.T) {
@@ -46,9 +48,11 @@ func TestRenderServerRowLongName(t *testing.T) {
 	if !strings.Contains(row, "…") {
 		t.Errorf("long name not truncated with ellipsis: %q", row)
 	}
-	// State column stays at 2 (marker) + 20 (name column).
-	if idx := strings.Index(row, "stopped"); idx != 22 {
-		t.Errorf("state at %d, want 22: %q", idx, row)
+	// State column sits at display cell 2 (marker) + 20 (name column).
+	// Measure display width, not byte offset: the ellipsis is 3 bytes.
+	prefix := row[:strings.Index(row, "stopped")]
+	if w := runewidth.StringWidth(prefix); w != 22 {
+		t.Errorf("state at display cell %d, want 22: %q", w, row)
 	}
 }
 
@@ -59,7 +63,9 @@ func TestRenderServerRowWideUnicode(t *testing.T) {
 		t.Fatal("wide unicode row rendered empty")
 	}
 	// 日本語のサーバー is 16 display cells wide; padding fills to 20.
-	if idx := strings.Index(row, "stopped"); idx != 22 {
-		t.Errorf("state at %d, want 22: %q", idx, row)
+	// Measure display width, not byte offset: CJK runes are 3 bytes each.
+	prefix := row[:strings.Index(row, "stopped")]
+	if w := runewidth.StringWidth(prefix); w != 22 {
+		t.Errorf("state at display cell %d, want 22: %q", w, row)
 	}
 }
