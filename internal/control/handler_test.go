@@ -11,6 +11,7 @@ import (
 
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/gateway"
+	"github.com/mcpeach/mcpeach/internal/secrets"
 	"github.com/mcpeach/mcpeach/internal/server"
 )
 
@@ -219,17 +220,29 @@ func TestStartServerNilManager(t *testing.T) {
 	}
 }
 
-func TestEnvSlice(t *testing.T) {
-	got := envSlice(map[string]string{"A": "1", "B": "2"})
-	if len(got) != 2 {
-		t.Fatalf("envSlice = %v, want 2 entries", got)
+func TestResolveEnv(t *testing.T) {
+	h := &Handler{res: secrets.NewResolver(nil)}
+	t.Setenv("MY_TOKEN", "s3cret")
+	got, err := h.resolveEnv(map[string]string{"TOKEN": "env:MY_TOKEN", "PLAIN": "x"})
+	if err != nil {
+		t.Fatalf("resolveEnv: %v", err)
 	}
 	seen := map[string]bool{}
 	for _, e := range got {
 		seen[e] = true
 	}
-	if !seen["A=1"] || !seen["B=2"] {
-		t.Errorf("envSlice = %v, want A=1 and B=2", got)
+	if !seen["TOKEN=s3cret"] {
+		t.Errorf("resolveEnv = %v, want TOKEN=s3cret", got)
+	}
+	if !seen["PLAIN=x"] {
+		t.Errorf("resolveEnv = %v, want PLAIN=x", got)
+	}
+}
+
+func TestResolveEnvUnset(t *testing.T) {
+	h := &Handler{res: secrets.NewResolver(nil)}
+	if _, err := h.resolveEnv(map[string]string{"TOKEN": "env:DOES_NOT_EXIST_XYZ"}); err == nil {
+		t.Fatal("resolveEnv unset: want error, got nil")
 	}
 }
 
