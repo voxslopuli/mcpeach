@@ -314,6 +314,33 @@ func TestProcessesNilManager(t *testing.T) {
 	}
 }
 
+func TestProcessesCollectError(t *testing.T) {
+	// A server with a PID that processinfo.Collect fails on (nonexistent PID)
+	// should be skipped, not error the whole response.
+	mgr := server.NewManager()
+	srv := server.New("ghost")
+	mgr.Add(srv)
+	// Force a bogus PID by starting a process then killing it.
+	bin := buildFakeServer(t)
+	if err := mgr.Start(context.Background(), "ghost", bin, nil, nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	_ = mgr.Stop("ghost")
+
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"ghost": {Command: bin, Enabled: true},
+		},
+	}
+	h := NewHandler(mgr, gateway.New(cfg), cfg)
+	req := httptest.NewRequest(http.MethodGet, "/v0/processes", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+}
+
 func TestStartStopServer(t *testing.T) {
 	bin := buildFakeServer(t)
 	cfg := &config.Config{
