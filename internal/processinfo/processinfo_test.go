@@ -59,7 +59,7 @@ func TestFormatPercent(t *testing.T) {
 		{12.5, "12.5%"},
 		{99.99, "100.0%"},
 		{3.14159, "3.1%"},
-		{150, "100.0%"}, // clamped
+		{150, "150.0%"}, // multi-core: not capped at 100
 	}
 	for _, tt := range tests {
 		if got := FormatPercent(tt.p); got != tt.want {

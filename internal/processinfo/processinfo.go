@@ -5,8 +5,8 @@ package processinfo
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/shirou/gopsutil/v4/net"
 	"github.com/shirou/gopsutil/v4/process"
 )
 
@@ -28,7 +28,9 @@ func Collect(ctx context.Context, pid int32) (Info, error) {
 
 	info := Info{PID: pid}
 
-	if cpu, err := p.PercentWithContext(ctx, 0); err == nil {
+	// Sample CPU over a short interval so the reading is accurate (a fresh
+	// Process with interval 0 always returns 0).
+	if cpu, err := p.PercentWithContext(ctx, 100*time.Millisecond); err == nil {
 		info.CPUPercent = cpu
 	}
 	if mem, err := p.MemoryInfoWithContext(ctx); err == nil {
@@ -58,12 +60,8 @@ func FormatBytes(b uint64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-// FormatPercent renders a percentage to one decimal place.
+// FormatPercent renders a percentage to one decimal place. It does not cap at
+// 100% because a process can exceed 100% CPU on multi-core systems.
 func FormatPercent(p float64) string {
-	if p > 100 {
-		p = 100
-	}
 	return fmt.Sprintf("%.1f%%", p)
 }
-
-var _ = net.ConnectionStat{} // keep net import if unused

@@ -83,11 +83,19 @@ func TestModelStartStop(t *testing.T) {
 	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a", State: "stopped"}}}
 	m := NewModel(fc)
 	m.loadServers()
-	m.startSelected()
+	cmd := m.startSelected()
+	if cmd == nil {
+		t.Fatal("startSelected returned nil cmd")
+	}
+	cmd() // run the cmd to trigger the client call
 	if !fc.started["a"] {
 		t.Error("startSelected did not call StartServer")
 	}
-	m.stopSelected()
+	cmd = m.stopSelected()
+	if cmd == nil {
+		t.Fatal("stopSelected returned nil cmd")
+	}
+	cmd()
 	if !fc.stopped["a"] {
 		t.Error("stopSelected did not call StopServer")
 	}
@@ -125,11 +133,19 @@ func TestModelUpdateStartStop(t *testing.T) {
 	m := NewModel(fc)
 	m.loadServers()
 
-	m.Update(tea.KeyPressMsg{Code: uv.KeyEnter})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: uv.KeyEnter})
+	if cmd == nil {
+		t.Fatal("Enter: want start cmd, got nil")
+	}
+	cmd()
 	if !fc.started["a"] {
 		t.Error("Enter did not start server")
 	}
-	m.Update(tea.KeyPressMsg{Code: uv.KeySpace})
+	_, cmd = m.Update(tea.KeyPressMsg{Code: uv.KeySpace})
+	if cmd == nil {
+		t.Fatal("Space: want stop cmd, got nil")
+	}
+	cmd()
 	if !fc.stopped["a"] {
 		t.Error("Space did not stop server")
 	}
@@ -160,8 +176,12 @@ func TestModelEmptyServerNavigation(t *testing.T) {
 	m := NewModel(&fakeClient{})
 	m.selectNext()
 	m.selectPrev()
-	m.startSelected()
-	m.stopSelected()
+	if cmd := m.startSelected(); cmd != nil {
+		t.Error("startSelected with no servers: want nil cmd")
+	}
+	if cmd := m.stopSelected(); cmd != nil {
+		t.Error("stopSelected with no servers: want nil cmd")
+	}
 	if m.selected != 0 {
 		t.Errorf("selected = %d, want 0", m.selected)
 	}
@@ -183,9 +203,19 @@ func TestModelInitCmd(t *testing.T) {
 func TestModelUpdateLoadServers(t *testing.T) {
 	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a"}}}
 	m := NewModel(fc)
-	m.Update(loadServersMsg{})
-	if len(m.servers) != 1 {
-		t.Errorf("servers = %d, want 1 after load", len(m.servers))
+	// loadServersMsg triggers the async load cmd; run it and handle the result.
+	_, cmd := m.Update(loadServersMsg{})
+	if cmd == nil {
+		t.Fatal("loadServersMsg: want load cmd, got nil")
+	}
+	msg := cmd()
+	loaded, ok := msg.(serversLoadedMsg)
+	if !ok {
+		t.Fatalf("load cmd produced %T, want serversLoadedMsg", msg)
+	}
+	updated, _ := m.Update(loaded)
+	if len(updated.(*Model).servers) != 1 {
+		t.Errorf("servers = %d, want 1 after load", len(updated.(*Model).servers))
 	}
 }
 

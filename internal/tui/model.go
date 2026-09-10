@@ -44,7 +44,51 @@ func (m *Model) Init() tea.Cmd {
 // loadServersMsg is sent after the initial load.
 type loadServersMsg struct{}
 
-// loadServers fetches the server list from the control plane.
+// serversLoadedMsg carries the result of a ListServers call.
+type serversLoadedMsg struct {
+	servers []client.ServerInfo
+}
+
+// serverActionMsg is sent after a start/stop completes.
+type serverActionMsg struct {
+	name string
+}
+
+// loadServersCmd returns a tea.Cmd that fetches the server list asynchronously.
+func (m *Model) loadServersCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return serversLoadedMsg{}
+		}
+		servers, err := m.client.ListServers(context.Background())
+		if err != nil {
+			return serversLoadedMsg{}
+		}
+		return serversLoadedMsg{servers: servers}
+	}
+}
+
+// startServerCmd returns a tea.Cmd that starts a server asynchronously.
+func (m *Model) startServerCmd(name string) tea.Cmd {
+	return func() tea.Msg {
+		if m.client != nil {
+			m.client.StartServer(context.Background(), name)
+		}
+		return serverActionMsg{name: name}
+	}
+}
+
+// stopServerCmd returns a tea.Cmd that stops a server asynchronously.
+func (m *Model) stopServerCmd(name string) tea.Cmd {
+	return func() tea.Msg {
+		if m.client != nil {
+			m.client.StopServer(context.Background(), name)
+		}
+		return serverActionMsg{name: name}
+	}
+}
+
+// loadServers fetches the server list synchronously (used in tests).
 func (m *Model) loadServers() {
 	if m.client == nil {
 		return
@@ -72,32 +116,35 @@ func (m *Model) selectPrev() {
 	m.selected = (m.selected - 1 + len(m.servers)) % len(m.servers)
 }
 
-// startSelected starts the currently selected server.
-func (m *Model) startSelected() {
+// startSelected starts the currently selected server asynchronously.
+func (m *Model) startSelected() tea.Cmd {
 	if m.client == nil || len(m.servers) == 0 {
-		return
+		return nil
 	}
 	name := m.servers[m.selected].Name
-	m.client.StartServer(context.Background(), name)
-	m.loadServers()
+	return m.startServerCmd(name)
 }
 
-// stopSelected stops the currently selected server.
-func (m *Model) stopSelected() {
+// stopSelected stops the currently selected server asynchronously.
+func (m *Model) stopSelected() tea.Cmd {
 	if m.client == nil || len(m.servers) == 0 {
-		return
+		return nil
 	}
 	name := m.servers[m.selected].Name
-	m.client.StopServer(context.Background(), name)
-	m.loadServers()
+	return m.stopServerCmd(name)
 }
 
 // Update handles messages.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case loadServersMsg:
-		m.loadServers()
+		return m, m.loadServersCmd()
+	case serversLoadedMsg:
+		m.servers = msg.servers
 		return m, nil
+	case serverActionMsg:
+		// After a start/stop, refresh the server list.
+		return m, m.loadServersCmd()
 	case tea.KeyPressMsg:
 		switch msg.Code {
 		case tea.KeyUp:
@@ -105,10 +152,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyDown:
 			m.selectNext()
 		case uv.KeyEnter:
-			m.startSelected()
+			return m, m.startSelected()
 		case uv.KeySpace:
-			m.stopSelected()
-		case uv.KeyEscape:
+			return m, m.stopSelected()
+		case uv.KeyEscape, 'q':
 			return m, tea.Quit
 		}
 		// Ctrl+C quits.
