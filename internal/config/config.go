@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/adrg/xdg"
 	"gopkg.in/yaml.v3"
@@ -117,7 +118,7 @@ func Save(path string, c *Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	return os.WriteFile(path, b, 0o600)
 }
 
 // Validate checks the config for structural errors.
@@ -174,22 +175,22 @@ func (c *Config) validateGroup(name string, g GroupConfig) error {
 			return fmt.Errorf("group %q: included_server %q not found", name, s)
 		}
 	}
-	for _, t := range g.IncludedTools {
-		server, _, err := splitTool(t)
-		if err != nil {
-			return fmt.Errorf("group %q: %w", name, err)
-		}
-		if _, ok := c.Servers[server]; !ok {
-			return fmt.Errorf("group %q: tool %q references unknown server %q", name, t, server)
-		}
+	if err := c.validateToolList(name, g.IncludedTools); err != nil {
+		return err
 	}
-	for _, t := range g.ExcludedTools {
+	return c.validateToolList(name, g.ExcludedTools)
+}
+
+// validateToolList checks that each canonical "<server>__<tool>" name
+// references a known server.
+func (c *Config) validateToolList(groupName string, tools []string) error {
+	for _, t := range tools {
 		server, _, err := splitTool(t)
 		if err != nil {
-			return fmt.Errorf("group %q: %w", name, err)
+			return fmt.Errorf("group %q: %w", groupName, err)
 		}
 		if _, ok := c.Servers[server]; !ok {
-			return fmt.Errorf("group %q: tool %q references unknown server %q", name, t, server)
+			return fmt.Errorf("group %q: tool %q references unknown server %q", groupName, t, server)
 		}
 	}
 	return nil
@@ -197,10 +198,9 @@ func (c *Config) validateGroup(name string, g GroupConfig) error {
 
 // splitTool parses a canonical "<server>__<tool>" name.
 func splitTool(name string) (string, string, error) {
-	for i := 0; i < len(name)-2; i++ {
-		if name[i] == '_' && name[i+1] == '_' {
-			return name[:i], name[i+2:], nil
-		}
+	server, tool, ok := strings.Cut(name, "__")
+	if !ok || server == "" || tool == "" {
+		return "", "", fmt.Errorf("invalid tool name %q (want <server>__<tool>)", name)
 	}
-	return "", "", fmt.Errorf("invalid tool name %q (want <server>__<tool>)", name)
+	return server, tool, nil
 }
