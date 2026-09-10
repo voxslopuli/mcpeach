@@ -429,7 +429,8 @@ func TestRunDaemonPopulatesGateway(t *testing.T) {
 	cfg := config.Default()
 	cfg.Gateway.Addr = "127.0.0.1:0"
 	cfg.Servers = map[string]config.ServerConfig{
-		"fake": {Command: bin, Enabled: true},
+		"fake":     {Command: bin, Enabled: true},
+		"disabled": {Command: bin, Enabled: false},
 	}
 	runDaemonAndWaitForTool(t, cfg, "fake__echo")
 }

@@ -201,6 +201,39 @@ func TestGatewayRemoveServerUnknown(t *testing.T) {
 	}
 }
 
+func TestGatewayRemoveServerPrefixSafety(t *testing.T) {
+	g := New(&config.Config{
+		Servers: map[string]config.ServerConfig{
+			"a":  {Enabled: true},
+			"ab": {Enabled: true},
+		},
+	})
+	g.RegisterTool("a", mcp.Tool{Name: "t1"})
+	g.RegisterTool("ab", mcp.Tool{Name: "t1"})
+
+	g.RemoveServer("a")
+
+	tools := g.Tools()
+	if len(tools) != 1 || tools[0].Name != "ab__t1" {
+		t.Errorf("Tools() = %v, want [ab__t1] (server a's tools removed, ab's survive)", tools)
+	}
+}
+
+func TestGatewayClose(t *testing.T) {
+	g := New(&config.Config{})
+	fc := &fakeToolCaller{}
+	g.RegisterClient("a", fc)
+
+	g.Close()
+
+	if !fc.closed {
+		t.Error("Close did not close the registered client")
+	}
+	if len(g.clients) != 0 {
+		t.Errorf("clients after Close = %d, want 0", len(g.clients))
+	}
+}
+
 func TestGatewayCloseClient(t *testing.T) {
 	g := New(&config.Config{})
 	// Register a client that tracks Close.

@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -142,17 +141,35 @@ func (g *Gateway) RegisterClient(server string, c ToolCaller) {
 // owned by that server. Returns the removed client (if any) so the caller can
 // close it after the removal is published.
 func (g *Gateway) RemoveServer(server string) ToolCaller {
-	prefix := server + "__"
 	g.mu.Lock()
 	c := g.clients[server]
 	delete(g.clients, server)
 	for name := range g.tools {
-		if strings.HasPrefix(name, prefix) {
+		srv, _, ok := config.SplitCanonical(name)
+		if ok && srv == server {
 			delete(g.tools, name)
 		}
 	}
 	g.mu.Unlock()
 	return c
+}
+
+// Close closes all registered upstream clients. It is called on daemon
+// shutdown so clients added via the control plane (which register directly on
+// the gateway) are not leaked.
+func (g *Gateway) Close() {
+	g.mu.Lock()
+	clients := make([]ToolCaller, 0, len(g.clients))
+	for _, c := range g.clients {
+		clients = append(clients, c)
+	}
+	g.clients = map[string]ToolCaller{}
+	g.mu.Unlock()
+	for _, c := range clients {
+		if closer, ok := c.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+	}
 }
 
 // CloseClient closes and removes the upstream client for a server, if any.
