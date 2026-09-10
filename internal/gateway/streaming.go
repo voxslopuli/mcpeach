@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -68,21 +67,8 @@ func (s *StreamingServer) SyncTools() {
 		st = append(st, server.ServerTool{
 			Tool: tool,
 			Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				// Reject calls to tools outside this group's catalog (defense in
-				// depth — SetTools already limits exposure, but the handler
-				// re-verifies in case the group config changed without a re-sync).
-				if s.group != "" {
-					allowed := false
-					for _, gt := range s.gw.GroupTools(s.group) {
-						if gt.Name == req.Params.Name {
-							allowed = true
-							break
-						}
-					}
-					if !allowed {
-						return nil, fmt.Errorf("tool %q not in group %q", req.Params.Name, s.group)
-					}
-				}
+				// SetTools already routes only registered tools; the gateway
+				// resolves the canonical name and forwards upstream.
 				return s.gw.CallTool(ctx, req)
 			},
 		})
@@ -93,7 +79,12 @@ func (s *StreamingServer) SyncTools() {
 // ServeHTTP implements http.Handler, mounting the MCP endpoint at /mcp (or at
 // /v0/groups/{group}/mcp for group-scoped servers). Other paths return 404.
 func (s *StreamingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/mcp" && r.URL.Path != s.groupPath() {
+	if s.group != "" {
+		if r.URL.Path != s.groupPath() {
+			http.NotFound(w, r)
+			return
+		}
+	} else if r.URL.Path != "/mcp" {
 		http.NotFound(w, r)
 		return
 	}

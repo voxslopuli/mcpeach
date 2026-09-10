@@ -217,6 +217,16 @@ func TestGroupStreamingServerServesGroupPath(t *testing.T) {
 	if resp2.StatusCode != http.StatusNotFound {
 		t.Fatalf("GET /bogus = %d, want 404", resp2.StatusCode)
 	}
+
+	// The group-scoped server must NOT respond on the global /mcp path.
+	resp3, err := http.Get(ts.URL + "/mcp")
+	if err != nil {
+		t.Fatalf("GET /mcp: %v", err)
+	}
+	defer func() { _ = resp3.Body.Close() }()
+	if resp3.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET /mcp = %d, want 404 for group-scoped server", resp3.StatusCode)
+	}
 }
 
 func TestStreamingServerSyncToolsNilGateway(t *testing.T) {

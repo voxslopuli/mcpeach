@@ -109,6 +109,30 @@ func TestGatewayGroupTools(t *testing.T) {
 	}
 }
 
+func TestGatewayGroupToolsAppliesPermissionFilter(t *testing.T) {
+	g := New(&config.Config{
+		Servers: map[string]config.ServerConfig{
+			"a": {
+				Enabled: true,
+				Tools:   config.ToolConfig{Mode: "allow", List: []string{"a__t1"}},
+			},
+		},
+		Groups: map[string]config.GroupConfig{
+			"g": {IncludedServers: []string{"a"}},
+		},
+	})
+	g.RegisterTool("a", mcp.Tool{Name: "t1"})
+	g.RegisterTool("a", mcp.Tool{Name: "t2"})
+	// Simulate a tool that slipped past registration (e.g. registered before
+	// the filter was tightened): GroupTools must still exclude it.
+	g.tools["a__t2"] = mcp.Tool{Name: "a__t2"}
+
+	tools := g.GroupTools("g")
+	if len(tools) != 1 || tools[0].Name != "a__t1" {
+		t.Errorf("GroupTools(g) = %v, want [a__t1] (blocked a__t2 excluded)", tools)
+	}
+}
+
 func TestGatewayGroupUnknown(t *testing.T) {
 	g := New(&config.Config{})
 	if tools := g.GroupTools("nope"); tools != nil {
