@@ -27,6 +27,12 @@ type claudeDoc struct {
 // Import reads a Claude Code MCP config JSON file and merges its servers into
 // cfg, preserving existing servers. Conflicts (same name) are overwritten.
 func Import(path string, cfg *config.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+	if cfg.Servers == nil {
+		cfg.Servers = make(map[string]config.ServerConfig)
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -68,12 +74,15 @@ func Export(path string, cfg *config.Config) error {
 			Env:     sc.Env,
 			URL:     sc.URL,
 		}
-		// Map mcpeach's transport back to the Claude Code type.
-		switch sc.Transport {
-		case "sse":
-			cs.Type = "sse"
-		default:
-			cs.Type = "http"
+		// Map mcpeach's transport back to the Claude Code type. stdio servers
+		// (no URL) omit the type field per the Claude Code standard.
+		if sc.URL != "" {
+			switch sc.Transport {
+			case "sse":
+				cs.Type = "sse"
+			default:
+				cs.Type = "http"
+			}
 		}
 		doc.MCPServers[name] = cs
 	}

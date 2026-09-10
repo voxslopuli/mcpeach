@@ -129,6 +129,54 @@ func TestExport(t *testing.T) {
 	}
 }
 
+func TestImportNilConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	if err := os.WriteFile(path, []byte(`{"mcpServers": {}}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := Import(path, nil); err == nil {
+		t.Fatal("Import with nil config: want error, got nil")
+	}
+}
+
+func TestImportNilServersMap(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	if err := os.WriteFile(path, []byte(`{"mcpServers": {"a": {"command": "echo"}}}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	cfg := &config.Config{} // Servers is nil
+	if err := Import(path, cfg); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if _, ok := cfg.Servers["a"]; !ok {
+		t.Error("server a not imported into nil map")
+	}
+}
+
+func TestExportStdioOmitsType(t *testing.T) {
+	cfg := config.Default()
+	cfg.Servers["stdio"] = config.ServerConfig{Command: "echo", Enabled: true}
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	if err := Export(path, cfg); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var doc struct {
+		MCPServers map[string]struct {
+			Type string `json:"type"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if doc.MCPServers["stdio"].Type != "" {
+		t.Errorf("stdio type = %q, want empty (omit)", doc.MCPServers["stdio"].Type)
+	}
+}
+
 func TestRoundTrip(t *testing.T) {
 	// Import then export should be lossless for the fields Claude Code supports.
 	raw := `{
