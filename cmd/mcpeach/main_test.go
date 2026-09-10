@@ -281,6 +281,27 @@ func TestRunDaemonNoConfig(t *testing.T) {
 	}
 }
 
+func TestRunDaemonRemoteConnectFail(t *testing.T) {
+	// A remote server that fails to connect should make runDaemon return an error.
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+
+	cfg := config.Default()
+	cfg.Gateway.Addr = "127.0.0.1:0"
+	cfg.Servers = map[string]config.ServerConfig{
+		"remote": {URL: "http://127.0.0.1:1/mcp", Transport: "streamable-http", Enabled: true},
+	}
+	if err := config.Save(config.Path(), cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	err := runDaemon(context.Background())
+	if err == nil {
+		t.Fatal("runDaemon with failing remote: want error, got nil")
+	}
+}
+
 func TestRunDaemonPopulatesGateway(t *testing.T) {
 	// Use a short runtime dir so the unix socket path stays under the 108-byte
 	// sun_path limit (t.TempDir() paths are too long).
