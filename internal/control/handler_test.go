@@ -601,18 +601,45 @@ func TestStartUnknownServer(t *testing.T) {
 	}
 }
 
-func TestStartServerNoCommand(t *testing.T) {
+func TestStartRemoteServer(t *testing.T) {
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
-			"remote": {URL: "http://x", Enabled: true},
+			"remote": {URL: testutil.StartRemoteMCP(t) + "/mcp", Transport: "streamable-http", Enabled: true},
+		},
+	}
+	mgr := server.NewManager()
+	gw := gateway.New(cfg)
+	h := NewHandler(mgr, gw, cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/remote/start", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	found := false
+	for _, tool := range gw.Tools() {
+		if tool.Name == "remote__echo" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Tools() = %v, want remote__echo", gw.Tools())
+	}
+}
+
+func TestStartRemoteServerBadURL(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"remote": {URL: "http://127.0.0.1:1/mcp", Transport: "streamable-http", Enabled: true},
 		},
 	}
 	h := newHandlerWithConfig(t, cfg)
 	req := httptest.NewRequest(http.MethodPost, "/v0/servers/remote/start", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404 (no command)", rec.Code)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (connect failed)", rec.Code)
 	}
 }
 

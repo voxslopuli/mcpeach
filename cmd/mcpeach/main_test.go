@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,11 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/mcpeach/mcpeach/internal/client"
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/service"
+	"github.com/mcpeach/mcpeach/internal/testutil"
 	"github.com/spf13/cobra"
 )
 
@@ -377,24 +374,12 @@ func runDaemonAndWaitForTool(t *testing.T, cfg *config.Config, wantTool string) 
 func TestRunDaemonRemoteServer(t *testing.T) {
 	// A remote streamable-http server that connects successfully should be
 	// registered and its client closed on shutdown (no leak).
-	// Spin up a real streamable-http MCP server on a free port.
-	ms := mcpserver.NewMCPServer("remote", "1.0.0")
-	ms.AddTool(mcp.NewTool("echo", mcp.WithString("text", mcp.Required())),
-		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return mcp.NewToolResultText(req.GetString("text", "")), nil
-		})
-	httpSrv := mcpserver.NewStreamableHTTPServer(ms)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Listen: %v", err)
-	}
-	go func() { _ = http.Serve(ln, httpSrv) }()
-	t.Cleanup(func() { _ = ln.Close() })
+	url := testutil.StartRemoteMCP(t)
 
 	cfg := config.Default()
 	cfg.Gateway.Addr = "127.0.0.1:0"
 	cfg.Servers = map[string]config.ServerConfig{
-		"remote": {URL: "http://" + ln.Addr().String() + "/mcp", Transport: "streamable-http", Enabled: true},
+		"remote": {URL: url + "/mcp", Transport: "streamable-http", Enabled: true},
 	}
 	runDaemonAndWaitForTool(t, cfg, "remote__echo")
 }

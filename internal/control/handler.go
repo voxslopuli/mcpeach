@@ -245,12 +245,13 @@ func (h *Handler) serverLogs(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var sc config.ServerConfig
+	var ok bool
 	h.mu.RLock()
 	if h.cfg != nil {
-		sc = h.cfg.Servers[name]
+		sc, ok = h.cfg.Servers[name]
 	}
 	h.mu.RUnlock()
-	if sc.Command == "" {
+	if !ok {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown server %q", name))
 		return
 	}
