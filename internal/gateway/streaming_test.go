@@ -26,6 +26,35 @@ func setupTestGateway(t *testing.T, tools ...mcp.Tool) *Gateway {
 	return g
 }
 
+// newInProcessClient connects an in-process MCP client to the server and
+// completes the initialize handshake.
+func newInProcessClient(t *testing.T, srv *StreamingServer) *client.Client {
+	t.Helper()
+	c, err := client.NewInProcessClient(srv.mcpServer)
+	if err != nil {
+		t.Fatalf("NewInProcessClient: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	if _, err := c.Initialize(context.Background(), mcp.InitializeRequest{}); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	return c
+}
+
+// listToolNames lists the tool names exposed by the server.
+func listToolNames(t *testing.T, c *client.Client) map[string]bool {
+	t.Helper()
+	res, err := c.ListTools(context.Background(), mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	names := map[string]bool{}
+	for _, tool := range res.Tools {
+		names[tool.Name] = true
+	}
+	return names
+}
+
 func TestNewStreamingServer(t *testing.T) {
 	g := setupTestGateway(t, mcp.Tool{Name: "t1", Description: "a t1"})
 	srv := NewStreamingServer(g, "test", "0.1.0")
@@ -78,24 +107,8 @@ func TestStreamingServerExposesTools(t *testing.T) {
 	// Connect an in-process MCP client to the streaming server's underlying
 	// MCPServer and list tools — this verifies the tools are actually exposed
 	// (and filtered) through the MCP interface.
-	c, err := client.NewInProcessClient(srv.mcpServer)
-	if err != nil {
-		t.Fatalf("NewInProcessClient: %v", err)
-	}
-	defer func() { _ = c.Close() }()
-
-	if _, err := c.Initialize(context.Background(), mcp.InitializeRequest{}); err != nil {
-		t.Fatalf("Initialize: %v", err)
-	}
-
-	res, err := c.ListTools(context.Background(), mcp.ListToolsRequest{})
-	if err != nil {
-		t.Fatalf("ListTools: %v", err)
-	}
-	names := map[string]bool{}
-	for _, tool := range res.Tools {
-		names[tool.Name] = true
-	}
+	c := newInProcessClient(t, srv)
+	names := listToolNames(t, c)
 	if !names["a__t1"] || !names["a__t2"] {
 		t.Errorf("tools/list returned %v, want a__t1 and a__t2", names)
 	}
@@ -136,23 +149,8 @@ func TestGroupStreamingServerExposesGroupTools(t *testing.T) {
 	g := setupGroupTestGateway(t)
 	srv := NewGroupStreamingServer(g, "g", "1.0.0", "grp")
 
-	c, err := client.NewInProcessClient(srv.mcpServer)
-	if err != nil {
-		t.Fatalf("NewInProcessClient: %v", err)
-	}
-	defer func() { _ = c.Close() }()
-	if _, err := c.Initialize(context.Background(), mcp.InitializeRequest{}); err != nil {
-		t.Fatalf("Initialize: %v", err)
-	}
-
-	res, err := c.ListTools(context.Background(), mcp.ListToolsRequest{})
-	if err != nil {
-		t.Fatalf("ListTools: %v", err)
-	}
-	names := map[string]bool{}
-	for _, tool := range res.Tools {
-		names[tool.Name] = true
-	}
+	c := newInProcessClient(t, srv)
+	names := listToolNames(t, c)
 	if len(names) != 2 || !names["a__t1"] || !names["a__t2"] {
 		t.Errorf("tools/list = %v, want only a__t1 and a__t2", names)
 	}
@@ -165,14 +163,7 @@ func TestGroupStreamingServerRejectsOutsideTools(t *testing.T) {
 	g := setupGroupTestGateway(t)
 	srv := NewGroupStreamingServer(g, "g", "1.0.0", "grp")
 
-	c, err := client.NewInProcessClient(srv.mcpServer)
-	if err != nil {
-		t.Fatalf("NewInProcessClient: %v", err)
-	}
-	defer func() { _ = c.Close() }()
-	if _, err := c.Initialize(context.Background(), mcp.InitializeRequest{}); err != nil {
-		t.Fatalf("Initialize: %v", err)
-	}
+	c := newInProcessClient(t, srv)
 
 	// b__t3 is not in the group's catalog — the call must fail.
 	if _, err := c.CallTool(context.Background(), mcp.CallToolRequest{
@@ -191,22 +182,8 @@ func TestStreamingServerSyncTools(t *testing.T) {
 	srv.SyncTools()
 
 	// The newly registered tool should now be visible via tools/list.
-	c, err := client.NewInProcessClient(srv.mcpServer)
-	if err != nil {
-		t.Fatalf("NewInProcessClient: %v", err)
-	}
-	defer func() { _ = c.Close() }()
-	if _, err := c.Initialize(context.Background(), mcp.InitializeRequest{}); err != nil {
-		t.Fatalf("Initialize: %v", err)
-	}
-	res, err := c.ListTools(context.Background(), mcp.ListToolsRequest{})
-	if err != nil {
-		t.Fatalf("ListTools: %v", err)
-	}
-	names := map[string]bool{}
-	for _, tool := range res.Tools {
-		names[tool.Name] = true
-	}
+	c := newInProcessClient(t, srv)
+	names := listToolNames(t, c)
 	if !names["a__t1"] || !names["a__t2"] {
 		t.Errorf("tools/list after SyncTools = %v, want a__t1 and a__t2", names)
 	}
