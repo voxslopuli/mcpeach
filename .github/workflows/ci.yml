@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache: true
+      - name: Install gotask
+        run: go install github.com/go-task/task/v3/cmd/task@latest
+      - name: Vet
+        run: task vet
+      - name: Test
+        run: task test
+      - name: Build
+        run: task build
