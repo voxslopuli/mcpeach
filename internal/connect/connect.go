@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/gateway"
+	"github.com/mcpeach/mcpeach/internal/secrets"
 )
 
 // Connect establishes a client to the configured server and returns a
@@ -22,7 +23,7 @@ func Connect(ctx context.Context, sc config.ServerConfig, env []string) (gateway
 
 	switch {
 	case sc.Command != "":
-		c, err = client.NewStdioMCPClient(sc.Command, env, sc.Args...)
+		c, err = client.NewStdioMCPClient(sc.Command, secrets.MergeEnv(env), sc.Args...)
 	case sc.URL != "":
 		switch sc.Transport {
 		case "sse":

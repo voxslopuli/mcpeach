@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/mcpeach/mcpeach/internal/logs"
+	"github.com/mcpeach/mcpeach/internal/secrets"
 )
 
 // logCapacity is the number of log lines retained per server.
@@ -96,7 +97,7 @@ func (m *Manager) Start(ctx context.Context, name, command string, args, env []s
 	// config file, not untrusted input. exec.CommandContext does not invoke a
 	// shell, so there is no shell-metacharacter injection vector.
 	cmd := exec.CommandContext(ctx, command, args...) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command, go_subproc_rule-subproc
-	cmd.Env = env
+	cmd.Env = secrets.MergeEnv(env)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("stderr pipe: %w", err)
