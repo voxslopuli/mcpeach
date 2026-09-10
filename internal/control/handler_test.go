@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +14,7 @@ import (
 	"github.com/mcpeach/mcpeach/internal/gateway"
 	"github.com/mcpeach/mcpeach/internal/secrets"
 	"github.com/mcpeach/mcpeach/internal/server"
+	"github.com/mcpeach/mcpeach/internal/testutil"
 )
 
 // newTestHandler builds a handler backed by a fresh manager + gateway.
@@ -283,13 +283,7 @@ func TestStartStopServer(t *testing.T) {
 // buildFakeServer compiles the testdata fake MCP server binary.
 func buildFakeServer(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "fake-mcp")
-	cmd := exec.Command("go", "build", "-o", bin, "../../testdata/fake-mcp")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build fake server: %v\n%s", err, out)
-	}
-	return bin
+	return testutil.BuildFakeServer(t)
 }
 
 func TestStartUnknownServer(t *testing.T) {

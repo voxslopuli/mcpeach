@@ -2,23 +2,17 @@ package server
 
 import (
 	"context"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mcpeach/mcpeach/internal/testutil"
 )
 
 // buildFakeServer compiles the testdata fake MCP server binary.
 func buildFakeServer(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "fake-mcp")
-	cmd := exec.Command("go", "build", "-o", bin, "../../testdata/fake-mcp")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build fake server: %v\n%s", err, out)
-	}
-	return bin
+	return testutil.BuildFakeServer(t)
 }
 
 func TestManagerStartStop(t *testing.T) {

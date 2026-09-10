@@ -2,12 +2,11 @@ package connect
 
 import (
 	"context"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mcpeach/mcpeach/internal/config"
+	"github.com/mcpeach/mcpeach/internal/testutil"
 )
 
 // fakeCaller is a minimal ToolCaller for tests.
@@ -117,11 +116,5 @@ func TestConnectFakeMCP(t *testing.T) {
 // buildFakeServer compiles the testdata fake MCP server binary.
 func buildFakeServer(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "fake-mcp")
-	cmd := exec.Command("go", "build", "-o", bin, "../../testdata/fake-mcp")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build fake server: %v\n%s", err, out)
-	}
-	return bin
+	return testutil.BuildFakeServer(t)
 }
