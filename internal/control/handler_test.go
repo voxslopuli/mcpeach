@@ -39,6 +39,23 @@ func newHandlerWithConfig(t *testing.T, cfg *config.Config) http.Handler {
 	return NewHandler(mgr, gw, cfg)
 }
 
+// newFakeServerHandler builds a handler backed by one enabled fake MCP server.
+// It returns the handler plus the manager, gateway, and config so tests can
+// inspect or mutate them.
+func newFakeServerHandler(t *testing.T) (*Handler, *server.Manager, *gateway.Gateway, *config.Config) {
+	t.Helper()
+	bin := buildFakeServer(t)
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"fake": {Command: bin, Enabled: true},
+		},
+	}
+	mgr := server.NewManager()
+	mgr.Add(server.New("fake"))
+	gw := gateway.New(cfg)
+	return NewHandler(mgr, gw, cfg), mgr, gw, cfg
+}
+
 func TestListServers(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/v0/servers", nil)
@@ -393,16 +410,7 @@ func TestProcessesCollectError(t *testing.T) {
 }
 
 func TestStopServerRemovesTools(t *testing.T) {
-	bin := buildFakeServer(t)
-	cfg := &config.Config{
-		Servers: map[string]config.ServerConfig{
-			"fake": {Command: bin, Enabled: true},
-		},
-	}
-	mgr := server.NewManager()
-	mgr.Add(server.New("fake"))
-	gw := gateway.New(cfg)
-	h := NewHandler(mgr, gw, cfg)
+	h, _, gw, _ := newFakeServerHandler(t)
 
 	// Start: the fake server's tool should be registered.
 	req := httptest.NewRequest(http.MethodPost, "/v0/servers/fake/start", nil)
@@ -428,16 +436,7 @@ func TestStopServerRemovesTools(t *testing.T) {
 }
 
 func TestStartServerReplacementFailure(t *testing.T) {
-	bin := buildFakeServer(t)
-	cfg := &config.Config{
-		Servers: map[string]config.ServerConfig{
-			"fake": {Command: bin, Enabled: true},
-		},
-	}
-	mgr := server.NewManager()
-	mgr.Add(server.New("fake"))
-	gw := gateway.New(cfg)
-	h := NewHandler(mgr, gw, cfg)
+	h, _, gw, cfg := newFakeServerHandler(t)
 
 	// Start a healthy server.
 	req := httptest.NewRequest(http.MethodPost, "/v0/servers/fake/start", nil)
@@ -474,16 +473,7 @@ func TestStartServerReplacementFailure(t *testing.T) {
 }
 
 func TestStartServerReplacementSuccess(t *testing.T) {
-	bin := buildFakeServer(t)
-	cfg := &config.Config{
-		Servers: map[string]config.ServerConfig{
-			"fake": {Command: bin, Enabled: true},
-		},
-	}
-	mgr := server.NewManager()
-	mgr.Add(server.New("fake"))
-	gw := gateway.New(cfg)
-	h := NewHandler(mgr, gw, cfg)
+	h, _, gw, _ := newFakeServerHandler(t)
 
 	// Start once.
 	req := httptest.NewRequest(http.MethodPost, "/v0/servers/fake/start", nil)
