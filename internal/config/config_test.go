@@ -17,8 +17,8 @@ func TestDefault(t *testing.T) {
 	if c.LLM.BaseURL != "http://localhost:11434/v1" {
 		t.Errorf("Default llm base_url = %q, want http://localhost:11434/v1", c.LLM.BaseURL)
 	}
-	if c.LLM.Model != "llama3.2" {
-		t.Errorf("Default llm model = %q, want llama3.2", c.LLM.Model)
+	if c.LLM.Model != "Qwen-2.5-coder-7B" {
+		t.Errorf("Default llm model = %q, want Qwen-2.5-coder-7B", c.LLM.Model)
 	}
 	if !c.LLM.EnrichDescriptions {
 		t.Error("Default llm enrich_descriptions = false, want true")

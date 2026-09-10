@@ -71,7 +71,7 @@ func Default() *Config {
 		},
 		LLM: LLMConfig{
 			BaseURL:            "http://localhost:11434/v1",
-			Model:              "llama3.2",
+			Model:              "Qwen-2.5-coder-7B",
 			EnrichDescriptions: true,
 		},
 		Servers: map[string]ServerConfig{},
