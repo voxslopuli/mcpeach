@@ -60,6 +60,9 @@ func (m *Manager) Start(ctx context.Context, name, command string, env []string)
 	}
 	m.mu.Unlock()
 
+	// nosemgrep: command is a user-authored MCP server binary path from the
+	// user's own config file, not untrusted input. exec.CommandContext does not
+	// invoke a shell, so there is no shell-metacharacter injection vector.
 	cmd := exec.CommandContext(ctx, command)
 	cmd.Env = env
 	stderr, err := cmd.StderrPipe()
