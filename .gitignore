@@ -27,6 +27,9 @@ go.work
 # Build output
 /bin/
 
+# Coverage report
+coverage.txt
+
 # OpenCode session state
 .opencode/
 
