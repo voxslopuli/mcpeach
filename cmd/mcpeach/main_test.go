@@ -236,18 +236,26 @@ func TestInstallCmdRunEError(t *testing.T) {
 	}
 }
 
-func TestRunDaemon(t *testing.T) {
-	// Point XDG dirs at a temp dir so config + socket don't touch the real home.
+// setupTestConfig writes a config to a temp XDG dir and returns the dir.
+func setupTestConfig(t *testing.T, mutate func(*config.Config)) string {
+	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("XDG_RUNTIME_DIR", dir)
-
-	// Write a minimal config with no servers and a free gateway addr.
 	cfg := config.Default()
 	cfg.Gateway.Addr = "127.0.0.1:0"
+	if mutate != nil {
+		mutate(cfg)
+	}
 	if err := config.Save(config.Path(), cfg); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
+	return dir
+}
+
+func TestRunDaemon(t *testing.T) {
+	// Point XDG dirs at a temp dir so config + socket don't touch the real home.
+	setupTestConfig(t, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -287,18 +295,11 @@ func TestRunDaemonNoConfig(t *testing.T) {
 
 func TestRunDaemonRemoteConnectFail(t *testing.T) {
 	// A remote server that fails to connect should make runDaemon return an error.
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	t.Setenv("XDG_RUNTIME_DIR", dir)
-
-	cfg := config.Default()
-	cfg.Gateway.Addr = "127.0.0.1:0"
-	cfg.Servers = map[string]config.ServerConfig{
-		"remote": {URL: "http://127.0.0.1:1/mcp", Transport: "streamable-http", Enabled: true},
-	}
-	if err := config.Save(config.Path(), cfg); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
+	setupTestConfig(t, func(cfg *config.Config) {
+		cfg.Servers = map[string]config.ServerConfig{
+			"remote": {URL: "http://127.0.0.1:1/mcp", Transport: "streamable-http", Enabled: true},
+		}
+	})
 
 	err := runDaemon(context.Background())
 	if err == nil {
@@ -309,6 +310,8 @@ func TestRunDaemonRemoteConnectFail(t *testing.T) {
 func TestRunDaemonRemoteServer(t *testing.T) {
 	// A remote streamable-http server that connects successfully should be
 	// registered and its client closed on shutdown (no leak).
+	// Use a short runtime dir so the unix socket path stays under the 108-byte
+	// sun_path limit (t.TempDir() paths are too long).
 	dir := filepath.Join(os.TempDir(), "mcpeach-remote-test")
 	_ = os.RemoveAll(dir)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
