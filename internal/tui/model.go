@@ -5,7 +5,6 @@ package tui
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -256,46 +255,43 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the TUI.
 func (m *Model) View() tea.View {
+	theme := DefaultTheme()
 	var b strings.Builder
-	b.WriteString("mcpeach\n\n")
+	b.WriteString(theme.Title.Render("mcpeach") + "\n")
 
 	if m.showForm {
-		b.WriteString("Add server form\n\n")
+		b.WriteString(theme.Header.Render("Add server form") + "\n\n")
 		b.WriteString("Fill in the fields and press enter to submit.\n")
-		b.WriteString("esc/q back\n")
+		b.WriteString(theme.Help.Render("esc/q back") + "\n")
 		return tea.NewView(b.String())
 	}
 
 	if m.showLogs {
 		if len(m.servers) == 0 || m.selected >= len(m.servers) {
-			b.WriteString("No server selected\n\n")
-			b.WriteString("l toggle logs · esc/q back\n")
+			b.WriteString(theme.Help.Render("No server selected") + "\n\n")
+			b.WriteString(theme.Help.Render("l toggle logs · esc/q back") + "\n")
 			return tea.NewView(b.String())
 		}
-		b.WriteString("Logs for " + m.servers[m.selected].Name + "\n\n")
+		b.WriteString(theme.Header.Render("Logs for "+m.servers[m.selected].Name) + "\n\n")
 		for _, line := range m.logLines {
 			b.WriteString(line + "\n")
 		}
-		b.WriteString("\nl toggle logs · esc/q back\n")
+		b.WriteString("\n" + theme.Help.Render("l toggle logs · esc/q back") + "\n")
 		return tea.NewView(b.String())
 	}
 
 	if m.showTools {
-		b.WriteString("Tools\n\n")
+		b.WriteString(theme.Header.Render("Tools") + "\n\n")
 		for _, tool := range m.tools {
 			b.WriteString(tool + "\n")
 		}
-		b.WriteString("\nt toggle tools · esc/q back\n")
+		b.WriteString("\n" + theme.Help.Render("t toggle tools · esc/q back") + "\n")
 		return tea.NewView(b.String())
 	}
 
 	for i, s := range m.servers {
-		marker := " "
-		if i == m.selected {
-			marker = ">"
-		}
-		fmt.Fprintf(&b, "%s %-20s %s\n", marker, s.Name, s.State)
+		b.WriteString(theme.renderServerRow(s.Name, s.State, i == m.selected) + "\n")
 	}
-	b.WriteString("\n↑/↓ select · enter start · space stop · l logs · t tools · a add · q quit")
+	b.WriteString("\n" + theme.Help.Render("↑/↓ select · enter start · space stop · l logs · t tools · a add · q quit"))
 	return tea.NewView(b.String())
 }
