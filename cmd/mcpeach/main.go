@@ -96,7 +96,7 @@ func installCmd() *cobra.Command {
 		Use:   "install",
 		Short: "Install mcpeach as a background service",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			m, err := newServiceManager()
+			m, err := serviceManagerFactory()
 			if err != nil {
 				return err
 			}
@@ -114,7 +114,7 @@ func uninstallCmd() *cobra.Command {
 		Use:   "uninstall",
 		Short: "Remove the mcpeach background service",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			m, err := newServiceManager()
+			m, err := serviceManagerFactory()
 			if err != nil {
 				return err
 			}
@@ -132,7 +132,7 @@ func statusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show the mcpeach service status",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			m, err := newServiceManager()
+			m, err := serviceManagerFactory()
 			if err != nil {
 				return err
 			}
@@ -146,10 +146,20 @@ func statusCmd() *cobra.Command {
 	}
 }
 
+// serviceManager is the subset of service.Manager the CLI commands use.
+type serviceManager interface {
+	Install() error
+	Uninstall() error
+	Status() (service.Status, error)
+}
+
 // newServiceManager builds a service manager wired to the daemon.
-func newServiceManager() (*service.Manager, error) {
+func newServiceManager() (serviceManager, error) {
 	return service.NewManager(runDaemon, func() {})
 }
+
+// serviceManagerFactory is overridable in tests to inject a fake manager.
+var serviceManagerFactory = newServiceManager
 
 // statusString renders a service status for display.
 func statusString(st service.Status) string {

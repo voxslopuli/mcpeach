@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -72,6 +73,67 @@ func TestNewServiceManager(t *testing.T) {
 	}
 	if m == nil {
 		t.Fatal("newServiceManager returned nil")
+	}
+}
+
+// fakeManager is a minimal service.Manager for testing the command RunE bodies.
+type fakeManager struct {
+	installed   bool
+	uninstalled bool
+	status      service.Status
+}
+
+func (f *fakeManager) Install() error                  { f.installed = true; return nil }
+func (f *fakeManager) Uninstall() error                { f.uninstalled = true; return nil }
+func (f *fakeManager) Status() (service.Status, error) { return f.status, nil }
+func (f *fakeManager) Run() error                      { return nil }
+
+func TestInstallCmdRunE(t *testing.T) {
+	fm := &fakeManager{}
+	serviceManagerFactory = func() (serviceManager, error) { return fm, nil }
+	defer func() { serviceManagerFactory = newServiceManager }()
+
+	cmd := installCmd()
+	if err := cmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("install RunE: %v", err)
+	}
+	if !fm.installed {
+		t.Error("install did not call Install")
+	}
+}
+
+func TestUninstallCmdRunE(t *testing.T) {
+	fm := &fakeManager{}
+	serviceManagerFactory = func() (serviceManager, error) { return fm, nil }
+	defer func() { serviceManagerFactory = newServiceManager }()
+
+	cmd := uninstallCmd()
+	if err := cmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("uninstall RunE: %v", err)
+	}
+	if !fm.uninstalled {
+		t.Error("uninstall did not call Uninstall")
+	}
+}
+
+func TestStatusCmdRunE(t *testing.T) {
+	fm := &fakeManager{status: service.StatusRunning}
+	serviceManagerFactory = func() (serviceManager, error) { return fm, nil }
+	defer func() { serviceManagerFactory = newServiceManager }()
+
+	cmd := statusCmd()
+	if err := cmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("status RunE: %v", err)
+	}
+}
+
+func TestInstallCmdRunEError(t *testing.T) {
+	serviceManagerFactory = func() (serviceManager, error) { return nil, fmt.Errorf("boom") }
+	defer func() { serviceManagerFactory = newServiceManager }()
+
+	cmd := installCmd()
+	if err := cmd.RunE(cmd, nil); err == nil {
+		t.Fatal("install RunE with factory error: want error, got nil")
 	}
 }
 
