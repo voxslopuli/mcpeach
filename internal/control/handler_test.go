@@ -777,7 +777,9 @@ func TestServeUnixSocket(t *testing.T) {
 }
 
 func TestServerStartCreatesPrivateSocketDir(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "nested", "deep")
+	// Use a short path: t.TempDir() paths can exceed the ~108-byte unix
+	// socket limit, which makes net.Listen fail with "bind: invalid argument".
+	dir := filepath.Join(os.TempDir(), "mcpeach-sock-test")
 	sock := filepath.Join(dir, "mcpeach.sock")
 	srv := NewServer(sock, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
