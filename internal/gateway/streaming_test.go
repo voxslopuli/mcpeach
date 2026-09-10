@@ -113,6 +113,75 @@ func TestStreamingServerToolFilter(t *testing.T) {
 	}
 }
 
+// setupGroupTestGateway builds a gateway with two enabled servers "a" and "b"
+// and a group "grp" selecting only server "a"'s tools.
+func setupGroupTestGateway(t *testing.T) *Gateway {
+	t.Helper()
+	g := New(&config.Config{
+		Servers: map[string]config.ServerConfig{
+			"a": {Enabled: true},
+			"b": {Enabled: true},
+		},
+		Groups: map[string]config.GroupConfig{
+			"grp": {IncludedServers: []string{"a"}},
+		},
+	})
+	g.RegisterTool("a", mcp.Tool{Name: "t1", Description: "a t1"})
+	g.RegisterTool("a", mcp.Tool{Name: "t2", Description: "a t2"})
+	g.RegisterTool("b", mcp.Tool{Name: "t3", Description: "b t3"})
+	return g
+}
+
+func TestGroupStreamingServerExposesGroupTools(t *testing.T) {
+	g := setupGroupTestGateway(t)
+	srv := NewGroupStreamingServer(g, "g", "1.0.0", "grp")
+
+	c, err := client.NewInProcessClient(srv.mcpServer)
+	if err != nil {
+		t.Fatalf("NewInProcessClient: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, err := c.Initialize(context.Background(), mcp.InitializeRequest{}); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	res, err := c.ListTools(context.Background(), mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	names := map[string]bool{}
+	for _, tool := range res.Tools {
+		names[tool.Name] = true
+	}
+	if len(names) != 2 || !names["a__t1"] || !names["a__t2"] {
+		t.Errorf("tools/list = %v, want only a__t1 and a__t2", names)
+	}
+	if names["b__t3"] {
+		t.Errorf("tools/list = %v, group must not expose b__t3", names)
+	}
+}
+
+func TestGroupStreamingServerRejectsOutsideTools(t *testing.T) {
+	g := setupGroupTestGateway(t)
+	srv := NewGroupStreamingServer(g, "g", "1.0.0", "grp")
+
+	c, err := client.NewInProcessClient(srv.mcpServer)
+	if err != nil {
+		t.Fatalf("NewInProcessClient: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, err := c.Initialize(context.Background(), mcp.InitializeRequest{}); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	// b__t3 is not in the group's catalog — the call must fail.
+	if _, err := c.CallTool(context.Background(), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Name: "b__t3"},
+	}); err == nil {
+		t.Fatal("CallTool(b__t3) succeeded, want error for tool outside group")
+	}
+}
+
 func TestStreamingServerSyncTools(t *testing.T) {
 	g := setupTestGateway(t, mcp.Tool{Name: "t1"})
 	srv := NewStreamingServer(g, "test", "0.1.0")
