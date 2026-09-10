@@ -39,6 +39,11 @@ func NewStreamingServer(g *Gateway, name, version string) *StreamingServer {
 }
 
 // ServeHTTP implements http.Handler, mounting the MCP endpoint at /mcp.
+// Non-/mcp paths return 404.
 func (s *StreamingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/mcp" {
+		http.NotFound(w, r)
+		return
+	}
 	s.http.ServeHTTP(w, r)
 }
