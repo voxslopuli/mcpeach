@@ -87,6 +87,9 @@ func runDaemon(ctx context.Context) error {
 			for _, t := range tools {
 				gw.RegisterTool(name, t)
 			}
+			if err := mgr.MarkRunning(name); err != nil {
+				return fmt.Errorf("mark running %s: %w", name, err)
+			}
 			if c, ok := caller.(interface{ Close() error }); ok {
 				defer func() { _ = c.Close() }()
 			}

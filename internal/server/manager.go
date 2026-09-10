@@ -52,6 +52,31 @@ func (m *Manager) Server(name string) *Server {
 	return m.servers[name]
 }
 
+// MarkRunning transitions a server to the running state. It is used when the
+// process is owned by an external client (e.g. the connect layer's mcp-go
+// stdio client) rather than spawned by the manager.
+func (m *Manager) MarkRunning(name string) error {
+	m.mu.Lock()
+	srv, ok := m.servers[name]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("unknown server %q", name)
+	}
+	return srv.Start()
+}
+
+// MarkStopped transitions a server to the stopped state. It is used when the
+// process is owned by an external client and has been closed.
+func (m *Manager) MarkStopped(name string) error {
+	m.mu.Lock()
+	srv, ok := m.servers[name]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("unknown server %q", name)
+	}
+	return srv.Stop()
+}
+
 // Start launches a stdio subprocess for the named server and captures its
 // stderr into the server's log ring. args are appended to the command.
 func (m *Manager) Start(ctx context.Context, name, command string, args, env []string) error {

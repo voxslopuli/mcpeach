@@ -232,6 +232,12 @@ func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Close any existing client before reconnecting to avoid leaking a
+	// subprocess or SSE connection if start is called twice.
+	if h.gw != nil {
+		h.gw.CloseClient(name)
+	}
+
 	// Connect the upstream server and register its tools + client with the
 	// gateway so the aggregated endpoint exposes them.
 	caller, tools, err := connect.Connect(r.Context(), sc, env)
@@ -243,6 +249,12 @@ func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {
 		h.gw.RegisterClient(name, caller)
 		for _, t := range tools {
 			h.gw.RegisterTool(name, t)
+		}
+	}
+	if h.mgr != nil {
+		if err := h.mgr.MarkRunning(name); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
 	}
 	if h.syncTools != nil {
@@ -271,12 +283,11 @@ func (h *Handler) stopServer(w http.ResponseWriter, r *http.Request) {
 	if h.gw != nil {
 		h.gw.CloseClient(name)
 	}
-	// The connect layer owns the subprocess (via mcp-go's stdio client), so the
-	// manager may report "not running". That's expected — the client close above
-	// is the real stop. Only surface genuine errors.
-	if err := h.mgr.Stop(name); err != nil && !strings.Contains(err.Error(), "not running") {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+	if h.mgr != nil {
+		if err := h.mgr.MarkStopped(name); err != nil && !strings.Contains(err.Error(), "not running") {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 }
