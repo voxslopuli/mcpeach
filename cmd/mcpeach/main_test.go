@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -328,9 +327,9 @@ func TestRunDaemonRemoteConnectFail(t *testing.T) {
 	}
 }
 
-// runDaemonAndWaitForTool starts runDaemon with the given config and polls the
-// control plane until the named tool appears (or the deadline passes).
-func runDaemonAndWaitForTool(t *testing.T, cfg *config.Config, wantTool string) {
+// bootDaemon writes the config to a short XDG dir and starts runDaemon in a
+// goroutine, returning a cancel func and the daemon's error channel.
+func bootDaemon(t *testing.T, cfg *config.Config) (context.CancelFunc, chan error) {
 	t.Helper()
 	// short XDG dir for the unix socket path limit
 	dir := filepath.Join(os.TempDir(), "mcpeach-daemon-test")
@@ -342,9 +341,30 @@ func runDaemonAndWaitForTool(t *testing.T, cfg *config.Config, wantTool string) 
 		t.Fatalf("Save: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	errCh := make(chan error, 1)
 	go func() { errCh <- runDaemon(ctx) }()
+	return cancel, errCh
+}
+
+// waitDaemonExit asserts that runDaemon returns nil shortly after cancel.
+func waitDaemonExit(t *testing.T, errCh chan error) {
+	t.Helper()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("runDaemon: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runDaemon did not return after cancel")
+	}
+}
+
+// runDaemonAndWaitForTool starts runDaemon with the given config and polls the
+// control plane until the named tool appears (or the deadline passes).
+func runDaemonAndWaitForTool(t *testing.T, cfg *config.Config, wantTool string) {
+	t.Helper()
+	cancel, errCh := bootDaemon(t, cfg)
+	defer cancel()
 	// Poll for the tool with a bounded deadline (no fixed sleep).
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -354,14 +374,7 @@ func runDaemonAndWaitForTool(t *testing.T, cfg *config.Config, wantTool string) 
 			for _, tool := range tools {
 				if tool == wantTool {
 					cancel()
-					select {
-					case err := <-errCh:
-						if err != nil {
-							t.Fatalf("runDaemon: %v", err)
-						}
-					case <-time.After(5 * time.Second):
-						t.Fatal("runDaemon did not return after cancel")
-					}
+					waitDaemonExit(t, errCh)
 					return
 				}
 			}
@@ -370,6 +383,31 @@ func runDaemonAndWaitForTool(t *testing.T, cfg *config.Config, wantTool string) 
 	}
 	cancel()
 	t.Fatalf("tool %q did not appear within deadline", wantTool)
+}
+
+// runDaemonAndWaitForURL starts runDaemon with the given config and polls the
+// given HTTP URL until it responds (bounded deadline, no fixed sleep). A 404
+// means the handler is not mounted, so it keeps polling.
+func runDaemonAndWaitForURL(t *testing.T, cfg *config.Config, url string) {
+	t.Helper()
+	cancel, errCh := bootDaemon(t, cfg)
+	defer cancel()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(url)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusNotFound {
+				continue
+			}
+			cancel()
+			waitDaemonExit(t, errCh)
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	cancel()
+	t.Fatalf("URL %q did not respond within deadline", url)
 }
 
 func TestRunDaemonMountsGroupEndpoints(t *testing.T) {
@@ -397,56 +435,9 @@ func TestRunDaemonMountsGroupEndpoints(t *testing.T) {
 		"grp": {IncludedServers: []string{"fake"}},
 	}
 
-	// short XDG dir for the unix socket path limit
-	dir := filepath.Join(os.TempDir(), "mcpeach-daemon-test")
-	_ = os.RemoveAll(dir)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	t.Setenv("XDG_RUNTIME_DIR", dir)
-	if err := config.Save(config.Path(), cfg); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() { errCh <- runDaemon(ctx) }()
-
-	// Poll the group MCP endpoint with an initialize request until it answers
-	// with a valid JSON-RPC result (bounded deadline, no fixed sleep).
+	// Boot the daemon and poll the group MCP endpoint until it responds.
 	url := fmt.Sprintf("http://127.0.0.1:%d/v0/groups/grp/mcp", port)
-	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"0.0.0"}}}`
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		resp, err := http.Post(url, "application/json", strings.NewReader(body))
-		if err == nil {
-			if resp.StatusCode == http.StatusNotFound {
-				_ = resp.Body.Close()
-				t.Fatal("group MCP endpoint = 404, want mounted handler")
-			}
-			var parsed map[string]any
-			if json.NewDecoder(resp.Body).Decode(&parsed) == nil {
-				_ = resp.Body.Close()
-				if _, ok := parsed["result"]; ok {
-					cancel()
-					select {
-					case err := <-errCh:
-						if err != nil {
-							t.Fatalf("runDaemon: %v", err)
-						}
-					case <-time.After(5 * time.Second):
-						t.Fatal("runDaemon did not return after cancel")
-					}
-					return
-				}
-			} else {
-				_ = resp.Body.Close()
-			}
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	cancel()
-	t.Fatal("group MCP endpoint did not respond within deadline")
+	runDaemonAndWaitForURL(t, cfg, url)
 }
 
 func TestRunDaemonRemoteServer(t *testing.T) {
