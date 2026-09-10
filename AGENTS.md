@@ -43,7 +43,8 @@ and exposes curated tool groups to clients. Written in Go.
 
 - Do not modify another agent's or the user's work without explicit approval.
 - Do not push or open PRs unless the user asks.
-- Do not hand-roll the MCP protocol; always use `mark3labs/mcp-go`.
+- Do not hand-roll the MCP protocol; always use `mark3labs/mcp-go` unless the
+  user explicitly requests a custom protocol implementation.
 - Do not add dependencies for what a few lines of stdlib can do.
 - Do not commit secrets, tokens, or credentials.
 - Do not delete or rewrite committed history without explicit authorization.
