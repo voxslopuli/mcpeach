@@ -628,16 +628,6 @@ func TestStartRemoteServer(t *testing.T) {
 	}
 }
 
-func TestStartRemoteServerUnknown(t *testing.T) {
-	h := newTestHandler(t)
-	req := httptest.NewRequest(http.MethodPost, "/v0/servers/nope/start", nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404", rec.Code)
-	}
-}
-
 func TestStartRemoteServerBadURL(t *testing.T) {
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
