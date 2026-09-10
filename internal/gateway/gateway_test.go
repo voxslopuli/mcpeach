@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -160,4 +161,27 @@ func TestGatewayToolFilterFuncBlocks(t *testing.T) {
 	if len(got) != 1 || got[0].Name != "a__t1" {
 		t.Errorf("ToolFilterFunc() = %v, want [a__t1]", got)
 	}
+}
+
+func TestGatewayConcurrent(t *testing.T) {
+	g := New(&config.Config{
+		Servers: map[string]config.ServerConfig{
+			"a": {Enabled: true},
+			"b": {Enabled: true},
+		},
+	})
+
+	// Concurrent registration and reads must not race.
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			g.RegisterTool("a", mcp.Tool{Name: "t" + string(rune('a'+n%26))})
+			g.RegisterTool("b", mcp.Tool{Name: "t" + string(rune('a'+n%26))})
+			_ = g.Tools()
+			_ = g.GroupTools("g")
+		}(i)
+	}
+	wg.Wait()
 }

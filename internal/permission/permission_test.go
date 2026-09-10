@@ -80,6 +80,11 @@ func TestGroupResolve(t *testing.T) {
 			config.GroupConfig{IncludedTools: []string{"a__t1", "z__nope"}},
 			[]string{"a__t1"},
 		},
+		{
+			"included tool with existing server but missing tool dropped",
+			config.GroupConfig{IncludedTools: []string{"a__t1", "a__missing"}},
+			[]string{"a__t1"},
+		},
 	}
 
 	for _, tt := range tests {

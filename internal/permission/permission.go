@@ -44,7 +44,7 @@ func ResolveGroup(g config.GroupConfig, catalog map[string][]string) []string {
 	}
 	// Add explicitly included tools (if present in catalog).
 	for _, t := range g.IncludedTools {
-		if _, ok := catalog[serverOf(t)]; ok {
+		if contains(catalog[serverOf(t)], t) {
 			seen[t] = true
 		}
 	}

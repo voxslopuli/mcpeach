@@ -6,6 +6,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mcpeach/mcpeach/internal/config"
@@ -17,8 +18,10 @@ func Canonicalize(server, tool string) string {
 	return server + "__" + tool
 }
 
-// Gateway aggregates tools from configured servers.
+// Gateway aggregates tools from configured servers. It is safe for concurrent
+// use: registration and lookups may happen across multiple goroutines.
 type Gateway struct {
+	mu      sync.RWMutex
 	cfg     *config.Config
 	filters map[string]permission.Filter // per-server permission filter
 	tools   map[string]mcp.Tool          // canonical name -> tool
@@ -49,17 +52,16 @@ func (g *Gateway) RegisterTool(server string, tool mcp.Tool) {
 		return
 	}
 	tool.Name = canonical
+	g.mu.Lock()
 	g.tools[canonical] = tool
+	g.mu.Unlock()
 }
 
 // Tools returns all aggregated tools, sorted by name.
 func (g *Gateway) Tools() []mcp.Tool {
-	out := make([]mcp.Tool, 0, len(g.tools))
-	for _, t := range g.tools {
-		out = append(out, t)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return sortedTools(g.tools)
 }
 
 // GroupTools returns the tools exposed by a named group, or nil if unknown.
@@ -68,16 +70,18 @@ func (g *Gateway) GroupTools(name string) []mcp.Tool {
 	if !ok {
 		return nil
 	}
-	// Build the catalog of canonical tools per server.
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	// Build the catalog of canonical tools per server in a single pass.
 	catalog := map[string][]string{}
-	for server, s := range g.cfg.Servers {
-		if !s.Enabled {
+	for canonical := range g.tools {
+		idx := strings.Index(canonical, "__")
+		if idx < 0 {
 			continue
 		}
-		for canonical := range g.tools {
-			if strings.HasPrefix(canonical, server+"__") {
-				catalog[server] = append(catalog[server], canonical)
-			}
+		srvName := canonical[:idx]
+		if s, ok := g.cfg.Servers[srvName]; ok && s.Enabled {
+			catalog[srvName] = append(catalog[srvName], canonical)
 		}
 	}
 	selected := permission.ResolveGroup(grp, catalog)
@@ -107,4 +111,14 @@ func (g *Gateway) ToolFilterFunc() func(ctx context.Context, tools []mcp.Tool) [
 		}
 		return out
 	}
+}
+
+// sortedTools returns the values of a tool map sorted by name.
+func sortedTools(tools map[string]mcp.Tool) []mcp.Tool {
+	out := make([]mcp.Tool, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
