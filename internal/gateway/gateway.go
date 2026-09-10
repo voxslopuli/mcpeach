@@ -8,9 +8,12 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mcpeach/mcpeach/internal/config"
+	"github.com/mcpeach/mcpeach/internal/metrics"
+	"github.com/mcpeach/mcpeach/internal/obs"
 	"github.com/mcpeach/mcpeach/internal/permission"
 )
 
@@ -33,6 +36,8 @@ type Gateway struct {
 	filters map[string]permission.Filter // per-server permission filter
 	tools   map[string]mcp.Tool          // canonical name -> tool
 	clients map[string]ToolCaller        // server name -> upstream client
+	metrics *metrics.Metrics             // tool-call observability
+	log     *obs.Logger                  // structured logging
 }
 
 // New builds a Gateway from config.
@@ -46,6 +51,8 @@ func New(cfg *config.Config) *Gateway {
 		filters: filters,
 		tools:   map[string]mcp.Tool{},
 		clients: map[string]ToolCaller{},
+		metrics: metrics.New(),
+		log:     obs.Default().With("pkg", "gateway"),
 	}
 }
 
@@ -132,6 +139,7 @@ func (g *Gateway) RegisterClient(server string, c ToolCaller) {
 
 // CallTool routes a call for a canonical "<server>__<tool>" name to the
 // originating server's client, stripping the server prefix before forwarding.
+// It records the call in the gateway's metrics.
 func (g *Gateway) CallTool(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name := req.Params.Name
 	idx := strings.Index(name, "__")
@@ -147,9 +155,23 @@ func (g *Gateway) CallTool(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 		return nil, fmt.Errorf("no client for server %q", server)
 	}
 
-	// Forward with the original (non-canonical) tool name.
+	// Forward with the original (non-canonical) tool name, recording latency.
 	req.Params.Name = tool
-	return c.CallTool(ctx, req)
+	start := time.Now()
+	result, err := c.CallTool(ctx, req)
+	latency := time.Since(start)
+	g.metrics.RecordToolCall(server, tool, latency, err)
+	if err != nil {
+		g.log.Error("tool call failed", "server", server, "tool", tool, "latency", latency, "err", err)
+	} else {
+		g.log.Info("tool call", "server", server, "tool", tool, "latency", latency)
+	}
+	return result, err
+}
+
+// Metrics returns the gateway's tool-call metrics snapshot.
+func (g *Gateway) Metrics() metrics.Snapshot {
+	return g.metrics.Snapshot()
 }
 
 // sortedTools returns the values of a tool map sorted by name.

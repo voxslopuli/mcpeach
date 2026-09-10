@@ -13,6 +13,7 @@ import (
 
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/gateway"
+	"github.com/mcpeach/mcpeach/internal/obs"
 	"github.com/mcpeach/mcpeach/internal/server"
 )
 
@@ -37,14 +38,17 @@ type Handler struct {
 	mgr *server.Manager
 	gw  *gateway.Gateway
 	cfg *config.Config
+	log *obs.Logger
 }
 
 // NewHandler builds a control-plane handler.
 func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) http.Handler {
-	h := &Handler{mgr: mgr, gw: gw, cfg: cfg}
+	h := &Handler{mgr: mgr, gw: gw, cfg: cfg, log: obs.Default().With("pkg", "control")}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v0/servers", h.listServers)
 	mux.HandleFunc("GET /v0/tools", h.listTools)
+	mux.HandleFunc("GET /v0/metrics", h.metrics)
+	mux.HandleFunc("GET /v0/logs", h.logs)
 	mux.HandleFunc("POST /v0/servers/{name}/start", h.startServer)
 	mux.HandleFunc("POST /v0/servers/{name}/stop", h.stopServer)
 	return mux
@@ -77,6 +81,20 @@ func (h *Handler) listTools(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, ListToolsResponse{Tools: names})
+}
+
+// metrics exposes the gateway's tool-call metrics.
+func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
+	if h.gw == nil {
+		writeError(w, http.StatusInternalServerError, "gateway not available")
+		return
+	}
+	writeJSON(w, http.StatusOK, h.gw.Metrics())
+}
+
+// logs exposes the app-wide structured log ring buffer.
+func (h *Handler) logs(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"lines": h.log.Lines()})
 }
 
 func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {
