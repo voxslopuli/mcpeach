@@ -105,6 +105,51 @@ func TestLogs(t *testing.T) {
 	_ = resp.Lines
 }
 
+func TestServerLogs(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"a": {Command: "echo", Enabled: true},
+		},
+	}
+	mgr := server.NewManager()
+	mgr.Add(server.New("a"))
+	h := NewHandler(mgr, gateway.New(cfg), cfg)
+	req := httptest.NewRequest(http.MethodGet, "/v0/servers/a/logs", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Lines []string `json:"lines"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	_ = resp.Lines
+}
+
+func TestServerLogsUnknown(t *testing.T) {
+	h := newTestHandler(t)
+	req := httptest.NewRequest(http.MethodGet, "/v0/servers/nope/logs", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestServerLogsNilManager(t *testing.T) {
+	gw := gateway.New(&config.Config{})
+	h := NewHandler(nil, gw, &config.Config{})
+	req := httptest.NewRequest(http.MethodGet, "/v0/servers/a/logs", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (nil manager)", rec.Code)
+	}
+}
+
 func TestProcesses(t *testing.T) {
 	mgr := server.NewManager()
 	gw := gateway.New(&config.Config{})

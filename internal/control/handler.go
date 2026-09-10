@@ -53,6 +53,7 @@ func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) ht
 	mux.HandleFunc("GET /v0/metrics", h.metrics)
 	mux.HandleFunc("GET /v0/logs", h.logs)
 	mux.HandleFunc("GET /v0/processes", h.processes)
+	mux.HandleFunc("GET /v0/servers/{name}/logs", h.serverLogs)
 	mux.HandleFunc("POST /v0/servers/{name}/start", h.startServer)
 	mux.HandleFunc("POST /v0/servers/{name}/stop", h.stopServer)
 	return mux
@@ -121,6 +122,24 @@ func (h *Handler) processes(w http.ResponseWriter, r *http.Request) {
 		out[name] = info
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"processes": out})
+}
+
+// serverLogs exposes the captured log lines for a single server.
+func (h *Handler) serverLogs(w http.ResponseWriter, r *http.Request) {
+	if h.mgr == nil {
+		writeError(w, http.StatusInternalServerError, "manager not available")
+		return
+	}
+	name := r.PathValue("name")
+	if h.mgr.Server(name) == nil {
+		writeError(w, http.StatusNotFound, "unknown server")
+		return
+	}
+	lines := h.mgr.Logs(name)
+	if lines == nil {
+		lines = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"lines": lines})
 }
 
 func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {

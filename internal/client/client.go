@@ -63,6 +63,17 @@ func (c *Client) ListTools(ctx context.Context) ([]string, error) {
 	return resp.Tools, nil
 }
 
+// ServerLogs returns the captured log lines for a server.
+func (c *Client) ServerLogs(ctx context.Context, name string) ([]string, error) {
+	var resp struct {
+		Lines []string `json:"lines"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v0/servers/"+name+"/logs", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Lines, nil
+}
+
 // StartServer starts a server by name.
 func (c *Client) StartServer(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodPost, "/v0/servers/"+name+"/start", nil, nil)
