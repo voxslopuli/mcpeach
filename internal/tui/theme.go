@@ -43,16 +43,14 @@ func (t Theme) renderServerRow(name, state string, selected bool) string {
 		style = t.Selected
 	}
 	name = truncateWidth(name, serverNameWidth)
-	nameStyled := style.Render(name)
+	// Width on the style makes the styled region span the full column, so
+	// decorations (e.g. background) fill the whole name column.
+	nameStyled := style.Width(serverNameWidth).Render(name)
 	stateStyled := t.Stopped.Render(state)
 	if state == "running" {
 		stateStyled = t.Running.Render(state)
 	}
-	pad := serverNameWidth - runewidth.StringWidth(name)
-	if pad < 0 {
-		pad = 0
-	}
-	return marker + nameStyled + strings.Repeat(" ", pad) + stateStyled
+	return marker + nameStyled + stateStyled
 }
 
 // truncateWidth truncates s to at most width display cells, appending an
