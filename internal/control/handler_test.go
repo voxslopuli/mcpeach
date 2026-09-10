@@ -237,9 +237,9 @@ func TestServeUnixSocket(t *testing.T) {
 			},
 		},
 	}
-	// nosemgrep: http-request — "http://unix" is a unix-socket transport
-	// placeholder, not a real HTTP URL; no TLS is involved.
-	resp, err := client.Get("http://unix/v0/servers")
+	// "http://unix" is a unix-socket transport placeholder, not a real HTTP
+	// URL; no TLS is involved.
+	resp, err := client.Get("http://unix/v0/servers") // nosemgrep: problem-based-packs.insecure-transport.go-stdlib.http-request.http-request
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
