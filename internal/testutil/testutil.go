@@ -42,5 +42,5 @@ func StartRemoteMCP(t *testing.T) string {
 	}
 	go func() { _ = http.Serve(ln, httpSrv) }()
 	t.Cleanup(func() { _ = ln.Close() })
-	return "http://" + ln.Addr().String()
+	return "http://" + ln.Addr().String() // NOSONAR: S5145 — test-only localhost helper, not production traffic
 }
