@@ -17,13 +17,20 @@ import (
 // newTestHandler builds a handler backed by a fresh manager + gateway.
 func newTestHandler(t *testing.T) http.Handler {
 	t.Helper()
-	mgr := server.NewManager()
-	gw := gateway.New(&config.Config{
+	return newHandlerWithConfig(t, &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"a": {Enabled: true},
 		},
 	})
-	return NewHandler(mgr, gw, &config.Config{})
+}
+
+// newHandlerWithConfig builds a handler with a fresh manager + gateway and the
+// given config.
+func newHandlerWithConfig(t *testing.T, cfg *config.Config) http.Handler {
+	t.Helper()
+	mgr := server.NewManager()
+	gw := gateway.New(cfg)
+	return NewHandler(mgr, gw, cfg)
 }
 
 func TestListServers(t *testing.T) {
@@ -39,8 +46,8 @@ func TestListServers(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(resp.Servers) != 0 {
-		t.Errorf("servers = %d, want 0", len(resp.Servers))
+	if len(resp.Servers) != 1 || resp.Servers[0].Name != "a" {
+		t.Errorf("servers = %+v, want [a]", resp.Servers)
 	}
 }
 
@@ -63,18 +70,15 @@ func TestListTools(t *testing.T) {
 }
 
 func TestStartStopServer(t *testing.T) {
-	mgr := server.NewManager()
-	gw := gateway.New(&config.Config{})
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"echo": {Command: "echo", Enabled: true},
 		},
 	}
-	h := NewHandler(mgr, gw, cfg)
-
-	// Register the server with the manager.
+	mgr := server.NewManager()
 	srv := server.New("echo")
 	mgr.Add(srv)
+	h := NewHandler(mgr, gateway.New(cfg), cfg)
 
 	// Start.
 	req := httptest.NewRequest(http.MethodPost, "/v0/servers/echo/start", nil)
@@ -110,14 +114,12 @@ func TestStartUnknownServer(t *testing.T) {
 }
 
 func TestStartServerNoCommand(t *testing.T) {
-	mgr := server.NewManager()
-	gw := gateway.New(&config.Config{})
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"remote": {URL: "http://x", Enabled: true},
 		},
 	}
-	h := NewHandler(mgr, gw, cfg)
+	h := newHandlerWithConfig(t, cfg)
 	req := httptest.NewRequest(http.MethodPost, "/v0/servers/remote/start", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -137,14 +139,12 @@ func TestStopUnknownServer(t *testing.T) {
 }
 
 func TestStopNotRunning(t *testing.T) {
-	mgr := server.NewManager()
-	gw := gateway.New(&config.Config{})
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"echo": {Command: "echo", Enabled: true},
 		},
 	}
-	h := NewHandler(mgr, gw, cfg)
+	h := newHandlerWithConfig(t, cfg)
 	req := httptest.NewRequest(http.MethodPost, "/v0/servers/echo/stop", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -154,14 +154,12 @@ func TestStopNotRunning(t *testing.T) {
 }
 
 func TestStartServerFailsToStart(t *testing.T) {
-	mgr := server.NewManager()
-	gw := gateway.New(&config.Config{})
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"bad": {Command: "/nonexistent/binary", Enabled: true},
 		},
 	}
-	h := NewHandler(mgr, gw, cfg)
+	h := newHandlerWithConfig(t, cfg)
 	req := httptest.NewRequest(http.MethodPost, "/v0/servers/bad/start", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -171,12 +169,12 @@ func TestStartServerFailsToStart(t *testing.T) {
 }
 
 func TestStartServerNilManager(t *testing.T) {
-	gw := gateway.New(&config.Config{})
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"echo": {Command: "echo", Enabled: true},
 		},
 	}
+	gw := gateway.New(cfg)
 	h := NewHandler(nil, gw, cfg)
 	req := httptest.NewRequest(http.MethodPost, "/v0/servers/echo/start", nil)
 	rec := httptest.NewRecorder()
