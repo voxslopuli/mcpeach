@@ -84,3 +84,25 @@ func TestFormSubmit(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateServerName(t *testing.T) {
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{"github", false},
+		{"", true},
+		{"a__b", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateServerName(tt.name)
+			if tt.wantErr && err == nil {
+				t.Fatalf("validateServerName(%q) = nil, want error", tt.name)
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("validateServerName(%q) = %v, want nil", tt.name, err)
+			}
+		})
+	}
+}

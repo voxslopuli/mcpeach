@@ -20,6 +20,17 @@ type addServerForm struct {
 	url       string
 }
 
+// validateServerName is the huh field-level validator for the server name.
+func validateServerName(s string) error {
+	if s == "" {
+		return errors.New("name is required")
+	}
+	if strings.Contains(s, "__") {
+		return errors.New("name cannot contain '__'")
+	}
+	return nil
+}
+
 // buildAddServerForm constructs the huh form. On submit it returns the
 // collected values via the form's Value pointers. Field-level Validate
 // callbacks give immediate feedback before the form closes.
@@ -29,15 +40,7 @@ func buildAddServerForm(f *addServerForm) *huh.Form {
 			huh.NewInput().
 				Title("Server name").
 				Placeholder("e.g. github").
-				Validate(func(s string) error {
-					if s == "" {
-						return errors.New("name is required")
-					}
-					if strings.Contains(s, "__") {
-						return errors.New("name cannot contain '__'")
-					}
-					return nil
-				}).
+				Validate(validateServerName).
 				Value(&f.name),
 			huh.NewInput().
 				Title("Command").
