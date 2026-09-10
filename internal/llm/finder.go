@@ -51,24 +51,51 @@ func (f *Finder) FindTools(ctx context.Context, query string, catalog []Tool) ([
 	}
 	content := resp.Choices[0].Message.Content
 
-	// Parse the JSON array of tool names.
-	var names []string
-	if err := json.Unmarshal([]byte(content), &names); err != nil {
-		return nil, fmt.Errorf("parse tool list: %w", err)
+	// Parse the JSON array of tool names, tolerating markdown fences and
+	// surrounding whitespace the LLM may add.
+	names, err := parseToolList(content)
+	if err != nil {
+		return nil, err
 	}
 
-	// Filter to tools that exist in the catalog.
+	// Filter to tools that exist in the catalog, de-duplicating.
 	known := map[string]Tool{}
 	for _, t := range catalog {
 		known[t.Name] = t
 	}
+	seen := map[string]bool{}
 	out := make([]Tool, 0, len(names))
 	for _, n := range names {
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
 		if t, ok := known[n]; ok {
 			out = append(out, t)
 		}
 	}
 	return out, nil
+}
+
+// parseToolList extracts a JSON array of tool names from LLM content,
+// stripping markdown code fences and surrounding whitespace.
+func parseToolList(content string) ([]string, error) {
+	s := strings.TrimSpace(content)
+	// Strip ```json ... ``` fences if present.
+	if strings.HasPrefix(s, "```") {
+		if i := strings.Index(s, "\n"); i >= 0 {
+			s = s[i+1:]
+		}
+		if i := strings.LastIndex(s, "```"); i >= 0 {
+			s = s[:i]
+		}
+		s = strings.TrimSpace(s)
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(s), &names); err != nil {
+		return nil, fmt.Errorf("parse tool list: %w", err)
+	}
+	return names, nil
 }
 
 const systemPrompt = `You are a tool-selection assistant. Given a user request and a catalog of available MCP tools (each named <server>__<tool>), return a JSON array of the tool names that would best help accomplish the request. Return only tools from the catalog. If none apply, return []. Respond with ONLY the JSON array, no prose.`
