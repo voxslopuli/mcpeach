@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/gateway"
 	"github.com/mcpeach/mcpeach/internal/secrets"
@@ -388,6 +389,119 @@ func TestProcessesCollectError(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestStopServerRemovesTools(t *testing.T) {
+	bin := buildFakeServer(t)
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"fake": {Command: bin, Enabled: true},
+		},
+	}
+	mgr := server.NewManager()
+	mgr.Add(server.New("fake"))
+	gw := gateway.New(cfg)
+	h := NewHandler(mgr, gw, cfg)
+
+	// Start: the fake server's tool should be registered.
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/fake/start", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	if len(gw.Tools()) != 1 {
+		t.Fatalf("after start Tools() = %d, want 1", len(gw.Tools()))
+	}
+
+	// Stop: the tool must be removed from the gateway.
+	req = httptest.NewRequest(http.MethodPost, "/v0/servers/fake/stop", nil)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("stop status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	if len(gw.Tools()) != 0 {
+		t.Errorf("after stop Tools() = %d, want 0 (stale tools remain)", len(gw.Tools()))
+	}
+}
+
+func TestStartServerReplacementFailure(t *testing.T) {
+	bin := buildFakeServer(t)
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"fake": {Command: bin, Enabled: true},
+		},
+	}
+	mgr := server.NewManager()
+	mgr.Add(server.New("fake"))
+	gw := gateway.New(cfg)
+	h := NewHandler(mgr, gw, cfg)
+
+	// Start a healthy server.
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/fake/start", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	if len(gw.Tools()) != 1 {
+		t.Fatalf("after start Tools() = %d, want 1", len(gw.Tools()))
+	}
+
+	// Attempt a replacement whose connect fails (bad command). The original
+	// client and tool must survive.
+	cfg.Servers["fake"] = config.ServerConfig{Command: "/nonexistent/binary", Enabled: true}
+	req = httptest.NewRequest(http.MethodPost, "/v0/servers/fake/start", nil)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("replacement status = %d, want 500 (body %s)", rec.Code, rec.Body.String())
+	}
+	if len(gw.Tools()) != 1 {
+		t.Errorf("after failed replacement Tools() = %d, want 1 (original destroyed)", len(gw.Tools()))
+	}
+	// The original client must still route calls (not destroyed).
+	res, err := gw.CallTool(context.Background(), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Name: "fake__echo", Arguments: map[string]any{"text": "hi"}},
+	})
+	if err != nil {
+		t.Errorf("CallTool after failed replacement: %v (original client destroyed)", err)
+	} else if res == nil {
+		t.Error("CallTool after failed replacement returned nil result")
+	}
+}
+
+func TestStartServerReplacementSuccess(t *testing.T) {
+	bin := buildFakeServer(t)
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"fake": {Command: bin, Enabled: true},
+		},
+	}
+	mgr := server.NewManager()
+	mgr.Add(server.New("fake"))
+	gw := gateway.New(cfg)
+	h := NewHandler(mgr, gw, cfg)
+
+	// Start once.
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/fake/start", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+
+	// Start again (replacement). Must still work with no client leak.
+	req = httptest.NewRequest(http.MethodPost, "/v0/servers/fake/start", nil)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("replacement status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	if len(gw.Tools()) != 1 {
+		t.Errorf("after replacement Tools() = %d, want 1", len(gw.Tools()))
 	}
 }
 

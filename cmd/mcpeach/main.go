@@ -67,6 +67,15 @@ func runDaemon(ctx context.Context) error {
 	mgr := server.NewManager()
 	res := secrets.NewResolver(secrets.NewKeyringStore())
 	gw := gateway.New(cfg)
+	// All acquired upstream clients (stdio + remote) are closed on daemon
+	// shutdown so a partial startup failure does not leak subprocesses or
+	// SSE/streamable-HTTP connections.
+	var clients []interface{ Close() error }
+	defer func() {
+		for _, c := range clients {
+			_ = c.Close()
+		}
+	}()
 	for name, sc := range cfg.Servers {
 		mgr.Add(server.New(name))
 		if !sc.Enabled {
@@ -84,15 +93,17 @@ func runDaemon(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("connect %s: %w", name, err)
 			}
+			// Register the cleanup guard immediately after connect succeeds so a
+			// partial failure (e.g. MarkRunning) does not leak the client.
+			if c, ok := caller.(interface{ Close() error }); ok {
+				clients = append(clients, c)
+			}
 			gw.RegisterClient(name, caller)
 			for _, t := range tools {
 				gw.RegisterTool(name, t)
 			}
 			if err := mgr.MarkRunning(name); err != nil {
 				return fmt.Errorf("mark running %s: %w", name, err)
-			}
-			if c, ok := caller.(interface{ Close() error }); ok {
-				defer func() { _ = c.Close() }()
 			}
 			if c, ok := caller.(*client.Client); ok {
 				if stderr, ok := client.GetStderr(c); ok {
@@ -104,6 +115,9 @@ func runDaemon(ctx context.Context) error {
 			caller, tools, err := connect.Connect(ctx, sc, nil)
 			if err != nil {
 				return fmt.Errorf("connect %s: %w", name, err)
+			}
+			if c, ok := caller.(interface{ Close() error }); ok {
+				clients = append(clients, c)
 			}
 			gw.RegisterClient(name, caller)
 			for _, t := range tools {

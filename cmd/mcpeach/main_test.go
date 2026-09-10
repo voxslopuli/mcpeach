@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/mcpeach/mcpeach/internal/client"
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/service"
@@ -299,6 +303,109 @@ func TestRunDaemonRemoteConnectFail(t *testing.T) {
 	err := runDaemon(context.Background())
 	if err == nil {
 		t.Fatal("runDaemon with failing remote: want error, got nil")
+	}
+}
+
+func TestRunDaemonRemoteServer(t *testing.T) {
+	// A remote streamable-http server that connects successfully should be
+	// registered and its client closed on shutdown (no leak).
+	dir := filepath.Join(os.TempDir(), "mcpeach-remote-test")
+	_ = os.RemoveAll(dir)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+
+	// Spin up a real streamable-http MCP server on a free port.
+	ms := mcpserver.NewMCPServer("remote", "1.0.0")
+	ms.AddTool(mcp.NewTool("echo", mcp.WithString("text", mcp.Required())),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return mcp.NewToolResultText(req.GetString("text", "")), nil
+		})
+	httpSrv := mcpserver.NewStreamableHTTPServer(ms)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	go func() { _ = http.Serve(ln, httpSrv) }()
+	t.Cleanup(func() { _ = ln.Close() })
+
+	cfg := config.Default()
+	cfg.Gateway.Addr = "127.0.0.1:0"
+	cfg.Servers = map[string]config.ServerConfig{
+		"remote": {URL: "http://" + ln.Addr().String() + "/mcp", Transport: "streamable-http", Enabled: true},
+	}
+	if err := config.Save(config.Path(), cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- runDaemon(ctx) }()
+
+	time.Sleep(500 * time.Millisecond)
+	c := client.NewUnix(config.SocketPath())
+	tools, err := c.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	found := false
+	for _, t := range tools {
+		if t == "remote__echo" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("gateway tools = %v, want remote__echo", tools)
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("runDaemon: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runDaemon did not return after cancel")
+	}
+}
+
+func TestImportCmdRunEError(t *testing.T) {
+	// No config file -> import RunE should return a load error.
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	cmd := importCmd()
+	if err := cmd.RunE(cmd, []string{filepath.Join(dir, "mcp.json")}); err == nil {
+		t.Fatal("import RunE with no config: want error, got nil")
+	}
+}
+
+func TestExportCmdRunEError(t *testing.T) {
+	// No config file -> export RunE should return a load error.
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	cmd := exportCmd()
+	if err := cmd.RunE(cmd, []string{filepath.Join(dir, "out.json")}); err == nil {
+		t.Fatal("export RunE with no config: want error, got nil")
+	}
+}
+
+func TestUninstallCmdRunEError(t *testing.T) {
+	serviceManagerFactory = func() (serviceManager, error) { return nil, fmt.Errorf("boom") }
+	defer func() { serviceManagerFactory = newServiceManager }()
+	cmd := uninstallCmd()
+	if err := cmd.RunE(cmd, nil); err == nil {
+		t.Fatal("uninstall RunE with factory error: want error, got nil")
+	}
+}
+
+func TestStatusCmdRunEError(t *testing.T) {
+	serviceManagerFactory = func() (serviceManager, error) { return nil, fmt.Errorf("boom") }
+	defer func() { serviceManagerFactory = newServiceManager }()
+	cmd := statusCmd()
+	if err := cmd.RunE(cmd, nil); err == nil {
+		t.Fatal("status RunE with factory error: want error, got nil")
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -137,15 +138,26 @@ func (g *Gateway) RegisterClient(server string, c ToolCaller) {
 	g.mu.Unlock()
 }
 
-// CloseClient closes and removes the upstream client for a server, if any.
-func (g *Gateway) CloseClient(server string) {
+// RemoveServer atomically removes a server's client and all canonical tools
+// owned by that server. Returns the removed client (if any) so the caller can
+// close it after the removal is published.
+func (g *Gateway) RemoveServer(server string) ToolCaller {
+	prefix := server + "__"
 	g.mu.Lock()
-	c, ok := g.clients[server]
-	if ok {
-		delete(g.clients, server)
+	c := g.clients[server]
+	delete(g.clients, server)
+	for name := range g.tools {
+		if strings.HasPrefix(name, prefix) {
+			delete(g.tools, name)
+		}
 	}
 	g.mu.Unlock()
-	if ok {
+	return c
+}
+
+// CloseClient closes and removes the upstream client for a server, if any.
+func (g *Gateway) CloseClient(server string) {
+	if c := g.RemoveServer(server); c != nil {
 		if closer, ok := c.(interface{ Close() error }); ok {
 			_ = closer.Close()
 		}

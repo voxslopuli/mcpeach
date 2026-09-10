@@ -163,6 +163,44 @@ func TestGatewayToolFilterFuncBlocks(t *testing.T) {
 	}
 }
 
+func TestGatewayRemoveServer(t *testing.T) {
+	g := New(&config.Config{
+		Servers: map[string]config.ServerConfig{
+			"a": {Enabled: true},
+			"b": {Enabled: true},
+		},
+	})
+	g.RegisterTool("a", mcp.Tool{Name: "t1"})
+	g.RegisterTool("a", mcp.Tool{Name: "t2"})
+	g.RegisterTool("b", mcp.Tool{Name: "t1"})
+	fc := &fakeToolCaller{}
+	g.RegisterClient("a", fc)
+
+	removed := g.RemoveServer("a")
+	if removed != fc {
+		t.Errorf("RemoveServer returned %v, want the registered client", removed)
+	}
+	// The caller owns closing the returned client.
+	if closer, ok := removed.(interface{ Close() error }); ok {
+		_ = closer.Close()
+	}
+	if !fc.closed {
+		t.Error("caller should close the returned client")
+	}
+	// Only server b's tool remains.
+	tools := g.Tools()
+	if len(tools) != 1 || tools[0].Name != "b__t1" {
+		t.Errorf("Tools() = %v, want [b__t1]", tools)
+	}
+}
+
+func TestGatewayRemoveServerUnknown(t *testing.T) {
+	g := New(&config.Config{})
+	if got := g.RemoveServer("nope"); got != nil {
+		t.Errorf("RemoveServer(nope) = %v, want nil", got)
+	}
+}
+
 func TestGatewayCloseClient(t *testing.T) {
 	g := New(&config.Config{})
 	// Register a client that tracks Close.
