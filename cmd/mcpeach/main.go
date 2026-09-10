@@ -144,14 +144,7 @@ func runDaemon(ctx context.Context) error {
 	}
 
 	// Serve the MCP endpoint on the gateway address.
-	srv := &http.Server{
-		Addr:              cfg.Gateway.Addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
+	srv := newStreamingServer(cfg.Gateway.Addr, mux)
 	go func() {
 		<-ctx.Done()
 		_ = srv.Close()
@@ -160,6 +153,22 @@ func runDaemon(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// newStreamingServer builds the HTTP server that serves the MCP streamable
+// HTTP endpoints. WriteTimeout is disabled (0) because SSE-style streams are
+// long-lived: a bounded write deadline would cut healthy streams off after
+// 30s. ReadHeaderTimeout and IdleTimeout still bound slowloris and idle
+// connections.
+func newStreamingServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      0,
+		IdleTimeout:       60 * time.Second,
+	}
 }
 
 // tuiCmd launches the Bubble Tea TUI over the control-plane unix socket.
