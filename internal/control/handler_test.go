@@ -3,12 +3,14 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -217,6 +219,39 @@ func TestAddServer(t *testing.T) {
 	}
 	if _, ok := cfg.Servers["new"]; !ok {
 		t.Error("server 'new' not added to config")
+	}
+}
+
+func TestAddServerConcurrent(t *testing.T) {
+	cfg := config.Default()
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	h.configPath = filepath.Join(t.TempDir(), "mcpeach.yml")
+
+	const n = 20
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			name := fmt.Sprintf("srv-%d", i)
+			body := fmt.Sprintf(`{"name":%q,"command":"echo"}`, name)
+			req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Errorf("add %s: status = %d, want 200 (body %s)", name, rec.Code, rec.Body.String())
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if len(cfg.Servers) != n {
+		t.Fatalf("Servers = %d, want %d (lost updates)", len(cfg.Servers), n)
+	}
+	for i := 0; i < n; i++ {
+		if _, ok := cfg.Servers[fmt.Sprintf("srv-%d", i)]; !ok {
+			t.Errorf("server srv-%d missing after concurrent adds", i)
+		}
 	}
 }
 

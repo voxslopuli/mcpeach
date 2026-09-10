@@ -293,7 +293,9 @@ func TestRunDaemonInvalidConfig(t *testing.T) {
 		}
 	})
 
-	err := runDaemon(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := runDaemon(ctx)
 	if err == nil {
 		t.Fatal("runDaemon with invalid config: want error, got nil")
 	}

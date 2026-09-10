@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mcpeach/mcpeach/internal/config"
@@ -50,6 +51,7 @@ type AddServerRequest struct {
 
 // Handler serves the control-plane API.
 type Handler struct {
+	mu         sync.RWMutex
 	mgr        *server.Manager
 	gw         *gateway.Gateway
 	cfg        *config.Config
@@ -92,6 +94,8 @@ func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) *H
 func (h *Handler) listServers(w http.ResponseWriter, r *http.Request) {
 	// Report the actual operational state from the manager where known.
 	resp := ListServersResponse{Servers: []ServerInfo{}}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
 	if h.cfg != nil {
 		for name := range h.cfg.Servers {
 			state := "stopped"
@@ -108,6 +112,8 @@ func (h *Handler) listServers(w http.ResponseWriter, r *http.Request) {
 
 // addServer adds a new server to the config and persists it.
 func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if h.cfg == nil {
 		writeError(w, http.StatusInternalServerError, "config not available")
 		return
@@ -201,6 +207,8 @@ func (h *Handler) processes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]processinfo.Info{}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
 	for name := range h.cfg.Servers {
 		pid := h.mgr.PID(name)
 		if pid == 0 {
@@ -237,9 +245,11 @@ func (h *Handler) serverLogs(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var sc config.ServerConfig
+	h.mu.RLock()
 	if h.cfg != nil {
 		sc = h.cfg.Servers[name]
 	}
+	h.mu.RUnlock()
 	if sc.Command == "" {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown server %q", name))
 		return
@@ -314,12 +324,15 @@ func (h *Handler) resolveEnv(env map[string]string) ([]string, error) {
 
 func (h *Handler) stopServer(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	h.mu.RLock()
 	if h.cfg != nil {
 		if _, ok := h.cfg.Servers[name]; !ok {
+			h.mu.RUnlock()
 			writeError(w, http.StatusNotFound, fmt.Sprintf("unknown server %q", name))
 			return
 		}
 	}
+	h.mu.RUnlock()
 	if h.mgr == nil {
 		writeError(w, http.StatusInternalServerError, "manager not available")
 		return
