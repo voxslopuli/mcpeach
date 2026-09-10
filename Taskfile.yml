@@ -33,10 +33,11 @@ tasks:
       - go vet ./...
 
   lint:
-    desc: Run go vet + golangci-lint (if installed)
+    desc: Run go vet + golangci-lint
     cmds:
       - go vet ./...
-      - command -v golangci-lint >/dev/null 2>&1 && golangci-lint run ./... || echo "golangci-lint not installed; skipping"
+      - command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint is required (brew install golangci-lint)"; exit 1; }
+      - golangci-lint run --enable errcheck
 
   fmt:
     desc: Format all Go files
