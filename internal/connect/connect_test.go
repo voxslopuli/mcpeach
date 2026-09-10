@@ -79,6 +79,15 @@ func TestConnectRemoteBadURL(t *testing.T) {
 	}
 }
 
+func TestConnectSSEBadURL(t *testing.T) {
+	// An SSE URL that doesn't respond should error on initialize.
+	sc := config.ServerConfig{URL: "http://127.0.0.1:1/sse", Transport: "sse"}
+	_, _, err := Connect(context.Background(), sc, nil)
+	if err == nil {
+		t.Fatal("Connect bad SSE URL: want error, got nil")
+	}
+}
+
 func TestDiscoverToolsNoListTools(t *testing.T) {
 	// A caller that doesn't implement ListTools should error.
 	_, err := DiscoverTools(context.Background(), &noListCaller{})
