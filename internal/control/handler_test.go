@@ -804,6 +804,14 @@ func TestServerStartSetsTimeouts(t *testing.T) {
 	}
 }
 
+// addServerReq issues an add-server request against the handler.
+func addServerReq(h *Handler, name string) {
+	body := fmt.Sprintf(`{"name":%q,"command":"echo"}`, name)
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+}
+
 // TestConcurrentControlOps exercises concurrent add/list/start/stop on the
 // handler. It would race before the handler mutex + per-server mutexes.
 func TestConcurrentControlOps(t *testing.T) {
@@ -819,11 +827,7 @@ func TestConcurrentControlOps(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			name := fmt.Sprintf("srv%d", i)
-			body := fmt.Sprintf(`{"name":%q,"command":"echo"}`, name)
-			req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
-			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, req)
+			addServerReq(h, fmt.Sprintf("srv%d", i))
 		}(i)
 	}
 	wg.Wait()
@@ -842,11 +846,7 @@ func TestConcurrentControlOps(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/v0/servers", nil)
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
-			name := fmt.Sprintf("extra%d", i)
-			body := fmt.Sprintf(`{"name":%q,"command":"echo"}`, name)
-			req = httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
-			rec = httptest.NewRecorder()
-			h.ServeHTTP(rec, req)
+			addServerReq(h, fmt.Sprintf("extra%d", i))
 		}(i)
 	}
 	wg2.Wait()
