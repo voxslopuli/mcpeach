@@ -97,13 +97,8 @@ func (c *Client) StopServer(ctx context.Context, name string) error {
 }
 
 // AddServer adds a new server to the config.
-func (c *Client) AddServer(ctx context.Context, name, command string, args []string, env map[string]string) error {
-	body, err := json.Marshal(AddServerRequest{
-		Name:    name,
-		Command: command,
-		Args:    args,
-		Env:     env,
-	})
+func (c *Client) AddServer(ctx context.Context, req AddServerRequest) error {
+	body, err := json.Marshal(req)
 	if err != nil {
 		return err
 	}

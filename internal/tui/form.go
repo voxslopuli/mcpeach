@@ -2,10 +2,13 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
+	"github.com/mcpeach/mcpeach/internal/client"
 )
 
 // addServerForm is the huh form for adding a new MCP server.
@@ -17,14 +20,27 @@ type addServerForm struct {
 	url       string
 }
 
+// validateServerName is the huh field-level validator for the server name.
+func validateServerName(s string) error {
+	if s == "" {
+		return errors.New("name is required")
+	}
+	if strings.Contains(s, "__") {
+		return errors.New("name cannot contain '__'")
+	}
+	return nil
+}
+
 // buildAddServerForm constructs the huh form. On submit it returns the
-// collected values via the form's Value pointers.
+// collected values via the form's Value pointers. Field-level Validate
+// callbacks give immediate feedback before the form closes.
 func buildAddServerForm(f *addServerForm) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Server name").
 				Placeholder("e.g. github").
+				Validate(validateServerName).
 				Value(&f.name),
 			huh.NewInput().
 				Title("Command").
@@ -39,6 +55,7 @@ func buildAddServerForm(f *addServerForm) *huh.Form {
 				Options(
 					huh.NewOption("stdio", "stdio"),
 					huh.NewOption("streamable-http", "streamable-http"),
+					huh.NewOption("sse", "sse"),
 				).
 				Value(&f.transport),
 			huh.NewInput().
@@ -64,9 +81,13 @@ func (m *Model) runAddServerForm() tea.Cmd {
 	}
 }
 
-// submitAddServer sends the form values to the control plane.
+// submitAddServer sends the form values to the control plane. A bounded
+// context prevents the TUI from hanging if the control plane is unresponsive.
 func (m *Model) submitAddServer(f *addServerForm) tea.Cmd {
 	return func() tea.Msg {
+		if err := validateAddServer(f); err != nil {
+			return addServerDoneMsg{err: err}
+		}
 		if m.client == nil {
 			return addServerDoneMsg{}
 		}
@@ -74,9 +95,36 @@ func (m *Model) submitAddServer(f *addServerForm) tea.Cmd {
 		if f.args != "" {
 			args = splitArgs(f.args)
 		}
-		err := m.client.AddServer(context.Background(), f.name, f.command, args, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := m.client.AddServer(ctx, client.AddServerRequest{
+			Name:      f.name,
+			Command:   f.command,
+			Args:      args,
+			Env:       nil, // the form does not collect env vars yet
+			URL:       f.url,
+			Transport: f.transport,
+		})
 		return addServerDoneMsg{err: err}
 	}
+}
+
+// validateAddServer checks transport-specific requirements before submission.
+// stdio (or unset) servers need a command; remote transports need a URL.
+func validateAddServer(f *addServerForm) error {
+	if f.name == "" {
+		return errors.New("name is required")
+	}
+	if f.transport == "" || f.transport == "stdio" {
+		if f.command == "" {
+			return errors.New("command is required for stdio servers")
+		}
+		return nil
+	}
+	if f.url == "" {
+		return errors.New("url is required for remote servers")
+	}
+	return nil
 }
 
 // splitArgs splits a space-separated string into args, respecting quotes.
