@@ -13,8 +13,7 @@ func BuildFakeServer(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "fake-mcp")
-	// NOSONAR: S2076 — bin is a t.TempDir() path (trusted test input), not user input.
-	cmd := exec.Command("go", "build", "-o", bin, "../../testdata/fake-mcp")
+	cmd := exec.Command("go", "build", "-o", bin, "../../testdata/fake-mcp") // NOSONAR: S2076 — bin is a t.TempDir() path (trusted test input), not user input.
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build fake server: %v\n%s", err, out)
 	}
