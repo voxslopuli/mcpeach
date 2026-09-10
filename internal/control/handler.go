@@ -14,6 +14,7 @@ import (
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/gateway"
 	"github.com/mcpeach/mcpeach/internal/obs"
+	"github.com/mcpeach/mcpeach/internal/processinfo"
 	"github.com/mcpeach/mcpeach/internal/secrets"
 	"github.com/mcpeach/mcpeach/internal/server"
 )
@@ -51,6 +52,7 @@ func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) ht
 	mux.HandleFunc("GET /v0/tools", h.listTools)
 	mux.HandleFunc("GET /v0/metrics", h.metrics)
 	mux.HandleFunc("GET /v0/logs", h.logs)
+	mux.HandleFunc("GET /v0/processes", h.processes)
 	mux.HandleFunc("POST /v0/servers/{name}/start", h.startServer)
 	mux.HandleFunc("POST /v0/servers/{name}/stop", h.stopServer)
 	return mux
@@ -97,6 +99,28 @@ func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
 // logs exposes the app-wide structured log ring buffer.
 func (h *Handler) logs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"lines": h.log.Lines()})
+}
+
+// processes exposes per-server process resource usage (CPU, RAM, ports).
+func (h *Handler) processes(w http.ResponseWriter, r *http.Request) {
+	if h.mgr == nil {
+		writeError(w, http.StatusInternalServerError, "manager not available")
+		return
+	}
+	out := map[string]processinfo.Info{}
+	for name := range h.cfg.Servers {
+		pid := h.mgr.PID(name)
+		if pid == 0 {
+			continue
+		}
+		info, err := processinfo.Collect(r.Context(), pid)
+		if err != nil {
+			h.log.Warn("process collect failed", "server", name, "pid", pid, "err", err)
+			continue
+		}
+		out[name] = info
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"processes": out})
 }
 
 func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {
