@@ -253,6 +253,22 @@ func setupTestConfig(t *testing.T, mutate func(*config.Config)) string {
 	return dir
 }
 
+func TestStreamingServerNoWriteTimeout(t *testing.T) {
+	// The MCP streamable HTTP transport serves SSE-style long-lived streams;
+	// a bounded WriteTimeout would terminate healthy streams mid-flight.
+	srv := newStreamingServer("127.0.0.1:0", http.NewServeMux())
+	if srv.WriteTimeout != 0 {
+		t.Errorf("WriteTimeout = %v, want 0 (no timeout for SSE streams)", srv.WriteTimeout)
+	}
+	// Slowloris and idle-connection protection must remain in place.
+	if srv.ReadHeaderTimeout != 10*time.Second {
+		t.Errorf("ReadHeaderTimeout = %v, want 10s", srv.ReadHeaderTimeout)
+	}
+	if srv.IdleTimeout != 60*time.Second {
+		t.Errorf("IdleTimeout = %v, want 60s", srv.IdleTimeout)
+	}
+}
+
 func TestRunDaemon(t *testing.T) {
 	// Point XDG dirs at a temp dir so config + socket don't touch the real home.
 	setupTestConfig(t, nil)
