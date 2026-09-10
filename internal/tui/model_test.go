@@ -43,6 +43,9 @@ func (f *fakeClient) StopServer(ctx context.Context, name string) error {
 	f.stopped[name] = true
 	return nil
 }
+func (f *fakeClient) AddServer(ctx context.Context, name, command string, args []string, env map[string]string) error {
+	return nil
+}
 
 func TestNewModel(t *testing.T) {
 	m := NewModel(&fakeClient{})
@@ -373,6 +376,56 @@ func TestModelToggleAddForm(t *testing.T) {
 	}
 }
 
+func TestSplitArgs(t *testing.T) {
+	tests := []struct {
+		in   string
+		want []string
+	}{
+		{"", nil},
+		{"a b c", []string{"a", "b", "c"}},
+		{"a \"b c\" d", []string{"a", "b c", "d"}},
+		{"single", []string{"single"}},
+	}
+	for _, tt := range tests {
+		got := splitArgs(tt.in)
+		if len(got) != len(tt.want) {
+			t.Errorf("splitArgs(%q) = %v, want %v", tt.in, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("splitArgs(%q)[%d] = %q, want %q", tt.in, i, got[i], tt.want[i])
+			}
+		}
+	}
+}
+
+func TestBuildAddServerForm(t *testing.T) {
+	f := &addServerForm{}
+	form := buildAddServerForm(f)
+	if form == nil {
+		t.Fatal("buildAddServerForm returned nil")
+	}
+}
+
+func TestSubmitAddServer(t *testing.T) {
+	fc := &fakeClient{}
+	m := NewModel(fc)
+	f := &addServerForm{name: "new", command: "echo", args: "a b"}
+	cmd := m.submitAddServer(f)
+	if cmd == nil {
+		t.Fatal("submitAddServer returned nil cmd")
+	}
+	msg := cmd()
+	done, ok := msg.(addServerDoneMsg)
+	if !ok {
+		t.Fatalf("submitAddServer produced %T, want addServerDoneMsg", msg)
+	}
+	if done.err != nil {
+		t.Errorf("submitAddServer err = %v, want nil", done.err)
+	}
+}
+
 // errClient returns an error from every method.
 type errClient struct{}
 
@@ -389,5 +442,8 @@ func (e *errClient) StartServer(ctx context.Context, name string) error {
 	return fmt.Errorf("boom")
 }
 func (e *errClient) StopServer(ctx context.Context, name string) error {
+	return fmt.Errorf("boom")
+}
+func (e *errClient) AddServer(ctx context.Context, name, command string, args []string, env map[string]string) error {
 	return fmt.Errorf("boom")
 }
