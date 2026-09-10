@@ -123,8 +123,20 @@ func runDaemon(ctx context.Context) error {
 	// Mount the MCP streaming endpoint and the control plane.
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", streaming)
+	// Mount a group-scoped MCP endpoint per configured group, exposing only
+	// that group's resolved tool catalog.
+	allStreaming := []*gateway.StreamingServer{streaming}
+	for groupName := range cfg.Groups {
+		gs := gateway.NewGroupStreamingServer(gw, "mcpeach-"+groupName, cfg.Gateway.Version, groupName)
+		mux.Handle("/v0/groups/"+groupName+"/mcp", gs)
+		allStreaming = append(allStreaming, gs)
+	}
 	controlHandler := control.NewHandler(mgr, gw, cfg)
-	controlHandler.SetSyncTools(streaming.SyncTools)
+	controlHandler.SetSyncTools(func() {
+		for _, s := range allStreaming {
+			s.SyncTools()
+		}
+	})
 	ctrl := control.NewServer(config.SocketPath(), controlHandler)
 
 	if err := ctrl.Start(ctx); err != nil {

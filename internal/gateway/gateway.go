@@ -95,6 +95,11 @@ func (g *Gateway) GroupTools(name string) []mcp.Tool {
 			continue
 		}
 		if s, ok := g.cfg.Servers[srvName]; ok && s.Enabled {
+			// Apply the per-server permission filter (same as RegisterTool) so
+			// tools blocked by a tightened filter are not exposed via groups.
+			if f, ok := g.filters[srvName]; ok && !f.Allows(canonical) {
+				continue
+			}
 			catalog[srvName] = append(catalog[srvName], canonical)
 		}
 	}

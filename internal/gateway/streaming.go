@@ -16,6 +16,7 @@ type StreamingServer struct {
 	mcpServer *server.MCPServer
 	http      *server.StreamableHTTPServer
 	gw        *Gateway
+	group     string // non-empty for group-scoped servers
 }
 
 // NewStreamingServer builds a streamable-HTTP MCP server from the gateway,
@@ -33,21 +34,41 @@ func NewStreamingServer(g *Gateway, name, version string) *StreamingServer {
 	return s
 }
 
+// NewGroupStreamingServer builds a streamable-HTTP MCP server exposing only the
+// tools in the named group's resolved catalog. It is mounted at
+// /v0/groups/{group}/mcp by the daemon.
+func NewGroupStreamingServer(g *Gateway, name, version, group string) *StreamingServer {
+	mcpServer := server.NewMCPServer(name, version)
+	s := &StreamingServer{mcpServer: mcpServer, gw: g, group: group}
+	s.SyncTools()
+	httpSrv := server.NewStreamableHTTPServer(mcpServer)
+	s.http = httpSrv
+	return s
+}
+
 // SyncTools re-registers the gateway's current tools on the MCP server. It is
 // called at construction and should be called after the gateway topology
 // changes (e.g. a server is started at runtime) so newly discovered tools are
-// exposed without rebuilding the streaming server.
+// exposed without rebuilding the streaming server. Group-scoped servers only
+// expose the group's resolved catalog.
 func (s *StreamingServer) SyncTools() {
 	if s.gw == nil {
 		return
 	}
-	tools := s.gw.Tools()
+	var tools []mcp.Tool
+	if s.group != "" {
+		tools = s.gw.GroupTools(s.group)
+	} else {
+		tools = s.gw.Tools()
+	}
 	st := make([]server.ServerTool, 0, len(tools))
 	for _, t := range tools {
 		tool := t
 		st = append(st, server.ServerTool{
 			Tool: tool,
 			Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				// SetTools already routes only registered tools; the gateway
+				// resolves the canonical name and forwards upstream.
 				return s.gw.CallTool(ctx, req)
 			},
 		})
@@ -55,12 +76,26 @@ func (s *StreamingServer) SyncTools() {
 	s.mcpServer.SetTools(st...)
 }
 
-// ServeHTTP implements http.Handler, mounting the MCP endpoint at /mcp.
-// Non-/mcp paths return 404.
+// ServeHTTP implements http.Handler, mounting the MCP endpoint at /mcp (or at
+// /v0/groups/{group}/mcp for group-scoped servers). Other paths return 404.
 func (s *StreamingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/mcp" {
+	if s.group != "" {
+		if r.URL.Path != s.groupPath() {
+			http.NotFound(w, r)
+			return
+		}
+	} else if r.URL.Path != "/mcp" {
 		http.NotFound(w, r)
 		return
 	}
 	s.http.ServeHTTP(w, r)
+}
+
+// groupPath returns the mount path for a group-scoped server, or "" for the
+// global server.
+func (s *StreamingServer) groupPath() string {
+	if s.group == "" {
+		return ""
+	}
+	return "/v0/groups/" + s.group + "/mcp"
 }
