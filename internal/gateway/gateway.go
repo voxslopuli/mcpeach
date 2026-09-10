@@ -4,6 +4,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -18,6 +19,12 @@ func Canonicalize(server, tool string) string {
 	return server + "__" + tool
 }
 
+// ToolCaller is the minimal interface the gateway needs to route a tool call
+// to an upstream server. It is satisfied by mcp-go's client.MCPClient.
+type ToolCaller interface {
+	CallTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
+}
+
 // Gateway aggregates tools from configured servers. It is safe for concurrent
 // use: registration and lookups may happen across multiple goroutines.
 type Gateway struct {
@@ -25,6 +32,7 @@ type Gateway struct {
 	cfg     *config.Config
 	filters map[string]permission.Filter // per-server permission filter
 	tools   map[string]mcp.Tool          // canonical name -> tool
+	clients map[string]ToolCaller        // server name -> upstream client
 }
 
 // New builds a Gateway from config.
@@ -37,6 +45,7 @@ func New(cfg *config.Config) *Gateway {
 		cfg:     cfg,
 		filters: filters,
 		tools:   map[string]mcp.Tool{},
+		clients: map[string]ToolCaller{},
 	}
 }
 
@@ -111,6 +120,36 @@ func (g *Gateway) ToolFilterFunc() func(ctx context.Context, tools []mcp.Tool) [
 		}
 		return out
 	}
+}
+
+// RegisterClient associates an upstream client with a server, enabling tool
+// call routing.
+func (g *Gateway) RegisterClient(server string, c ToolCaller) {
+	g.mu.Lock()
+	g.clients[server] = c
+	g.mu.Unlock()
+}
+
+// CallTool routes a call for a canonical "<server>__<tool>" name to the
+// originating server's client, stripping the server prefix before forwarding.
+func (g *Gateway) CallTool(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	name := req.Params.Name
+	idx := strings.Index(name, "__")
+	if idx < 0 {
+		return nil, fmt.Errorf("invalid tool name %q (want <server>__<tool>)", name)
+	}
+	server, tool := name[:idx], name[idx+2:]
+
+	g.mu.RLock()
+	c, ok := g.clients[server]
+	g.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("no client for server %q", server)
+	}
+
+	// Forward with the original (non-canonical) tool name.
+	req.Params.Name = tool
+	return c.CallTool(ctx, req)
 }
 
 // sortedTools returns the values of a tool map sorted by name.

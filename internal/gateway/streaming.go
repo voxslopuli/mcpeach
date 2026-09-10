@@ -25,16 +25,13 @@ func NewStreamingServer(g *Gateway, name, version string) *StreamingServer {
 		version,
 		server.WithToolFilter(g.ToolFilterFunc()),
 	)
-	// Register the aggregated tools with a passthrough handler. The tool filter
-	// governs which are visible/invocable.
+	// Register the aggregated tools with a handler that routes the call back to
+	// the originating server via the gateway. The tool filter governs which are
+	// visible/invocable.
 	for _, t := range g.Tools() {
 		tool := t
 		mcpServer.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					&mcp.TextContent{Text: "tool not yet wired to upstream server"},
-				},
-			}, nil
+			return g.CallTool(ctx, req)
 		})
 	}
 	httpSrv := server.NewStreamableHTTPServer(mcpServer)
