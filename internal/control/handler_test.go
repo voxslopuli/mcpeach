@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -234,6 +235,36 @@ func TestAddServerNilConfig(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500 (nil config)", rec.Code)
+	}
+}
+
+func TestAddServerInvalidBody(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	body := `{not json`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (invalid body)", rec.Code)
+	}
+}
+
+func TestAddServerSaveFail(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	h := NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	// Point configPath at a path where a file blocks the parent dir creation.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	h.configPath = filepath.Join(blocker, "mcpeach.yml")
+	body := `{"name":"a","command":"echo"}`
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (save fail)", rec.Code)
 	}
 }
 
