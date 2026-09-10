@@ -15,7 +15,9 @@ jobs:
           go-version: '1.27'
           cache: true
       - name: Install gotask
-        run: go install github.com/go-task/task/v3/cmd/task@latest
+        uses: go-task/setup-task@v2
+        with:
+          version: '3.x'
       - name: Vet
         run: task vet
       - name: Test
