@@ -101,6 +101,64 @@ groups:
     excluded_tools: []
 ```
 
+## Secrets: env-var references + system keychain
+
+Secrets (API keys, tokens) are never stored in plaintext in the config file.
+Two mechanisms, used together:
+
+### 1. Environment-variable references
+
+Any config value may reference an environment variable with the `env:` prefix:
+
+```yaml
+servers:
+  github:
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "env:GITHUB_TOKEN"   # read from env at use time
+llm:
+  api_key: "env:OPENAI_API_KEY"
+```
+
+- A value starting with `env:` is resolved from the process environment at the
+  point of use (server spawn, LLM call), not stored in the file.
+- If the referenced env var is unset, resolution fails with a clear error.
+- This keeps secrets out of the YAML while allowing shell/CI-provided values.
+
+### 2. System keychain storage
+
+For values the user enters interactively (via the TUI or `mcpeach add`), store
+secrets in the OS keychain instead of the config file:
+
+- **macOS**: Keychain via `security` CLI or the `keyring` Go library.
+- **Linux**: Secret Service (libsecret) / `keyring`.
+- **Windows**: Credential Manager / `keyring`.
+
+Config stores a keychain reference, not the secret:
+
+```yaml
+servers:
+  github:
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "keychain:mcpeach/github/GITHUB_PERSONAL_ACCESS_TOKEN"
+```
+
+- A value starting with `keychain:` is fetched from the OS keychain at use time.
+- The TUI's add/edit forms offer "store in keychain" for secret fields.
+- `mcpeach` uses the `zalando/go-keyring` library (cross-platform, stdlib-adjacent)
+  for keychain access.
+
+### Resolution order
+
+1. `keychain:` reference → fetch from OS keychain.
+2. `env:` reference → read from process environment.
+3. Plain value → used as-is.
+
+A `resolve` helper in `internal/config` (or a new `internal/secrets` package)
+resolves any value through this chain, so server spawn and LLM calls get the
+final secret without the config file ever holding it in plaintext.
+
 ## Permission Model
 
 - **Per-server**: `enabled` toggle (start/stop).
@@ -186,8 +244,15 @@ Two meta-tools exposed on the gateway (and reusable via TUI):
 - **Left**: server list (running/stopped/error, enabled/disabled).
 - **Right**: tool list with toggles, config, group membership.
 - **Bottom**: log viewport, chroma JSON highlighting, follow-mode.
-- **Keys**: start/stop, add/remove/edit (huh forms), toggle tool, view logs, **find tools** (invokes the search-and-load flow).
-- **Design pillar**: "cute and fun but not cloying" — warm peach palette, friendly-but-professional copy, no emoji spam, clear help footer.
+- **Process viewer** (alongside the log viewer): per-server live resource
+  metrics — CPU %, RSS memory, PID, uptime, and the port the server is bound
+  to (for remote/stdio servers that expose one). Uses the manager's process
+  handle (via `os.FindProcess`/`/proc` on Linux, `ps` on macOS) to sample
+  resource usage.
+- **Keys**: start/stop, add/remove/edit (huh forms), toggle tool, view logs,
+  **find tools** (invokes the search-and-load flow).
+- **Design pillar**: "cute and fun but not cloying" — warm peach palette,
+  friendly-but-professional copy, no emoji spam, clear help footer.
 
 ## Service Install
 
@@ -205,6 +270,7 @@ Two meta-tools exposed on the gateway (and reusable via TUI):
 | 4 | Control plane: unix-socket API + client | handler + client round-trip |
 | 5 | LLM tool-finder: OpenAI client, search+load meta-tools, description enrichment, validation | mock endpoint; prompt/parse; retrieval/validation |
 | 5b | Import/export: Claude Code mcp config JSON ↔ mcpeach config | round-trip, merge, conflict |
-| 6 | TUI: list/detail/toggles/log viewer/forms | model state transitions |
+| 5c | Secrets: env-var references + system keychain storage | resolve chain, keychain round-trip |
+| 6 | TUI: list/detail/toggles/log viewer/**process viewer**/forms | model state transitions |
 | 7 | Service install: kardianos/service | config gen |
 | 8 | Polish: theme, help, docs, final CI | — |
