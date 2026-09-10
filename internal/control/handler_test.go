@@ -105,6 +105,52 @@ func TestLogs(t *testing.T) {
 	_ = resp.Lines
 }
 
+func TestProcesses(t *testing.T) {
+	mgr := server.NewManager()
+	gw := gateway.New(&config.Config{})
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"echo": {Command: "echo", Enabled: true},
+		},
+	}
+	h := NewHandler(mgr, gw, cfg)
+
+	// Start the server so it has a PID, then query /v0/processes.
+	srv := server.New("echo")
+	mgr.Add(srv)
+	if err := mgr.Start(context.Background(), "echo", "echo", nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer mgr.Stop("echo")
+
+	req := httptest.NewRequest(http.MethodGet, "/v0/processes", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Processes map[string]any `json:"processes"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, ok := resp.Processes["echo"]; !ok {
+		t.Errorf("processes = %v, want echo entry", resp.Processes)
+	}
+}
+
+func TestProcessesNilManager(t *testing.T) {
+	gw := gateway.New(&config.Config{})
+	h := NewHandler(nil, gw, &config.Config{})
+	req := httptest.NewRequest(http.MethodGet, "/v0/processes", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (nil manager)", rec.Code)
+	}
+}
+
 func TestStartStopServer(t *testing.T) {
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{

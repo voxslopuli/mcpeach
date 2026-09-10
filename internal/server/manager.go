@@ -128,6 +128,17 @@ func (m *Manager) Logs(name string) []string {
 	return ring.Lines()
 }
 
+// PID returns the PID of a running server, or 0 if not running/unknown.
+func (m *Manager) PID(name string) int32 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.procs[name]
+	if !ok || p.cmd.Process == nil {
+		return 0
+	}
+	return int32(p.cmd.Process.Pid)
+}
+
 // scanLines reads lines from r and appends them to the ring.
 func scanLines(r io.Reader, ring *logs.Ring) {
 	sc := bufio.NewScanner(r)
