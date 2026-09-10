@@ -173,6 +173,58 @@ func TestGroupStreamingServerRejectsOutsideTools(t *testing.T) {
 	}
 }
 
+func TestGroupStreamingServerCallsGroupTool(t *testing.T) {
+	g := setupGroupTestGateway(t)
+	fc := &fakeClient{result: &mcp.CallToolResult{}}
+	g.RegisterClient("a", fc)
+	srv := NewGroupStreamingServer(g, "g", "1.0.0", "grp")
+
+	c := newInProcessClient(t, srv)
+	// a__t1 is in the group's catalog — the call must route to the upstream
+	// client with the canonical prefix stripped.
+	if _, err := c.CallTool(context.Background(), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Name: "a__t1"},
+	}); err != nil {
+		t.Fatalf("CallTool(a__t1) in group: %v", err)
+	}
+	if fc.calledName != "t1" {
+		t.Errorf("upstream called with %q, want t1 (prefix stripped)", fc.calledName)
+	}
+}
+
+func TestGroupStreamingServerServesGroupPath(t *testing.T) {
+	g := setupGroupTestGateway(t)
+	srv := NewGroupStreamingServer(g, "g", "1.0.0", "grp")
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	// The group-scoped server must be mounted at /v0/groups/{group}/mcp.
+	resp, err := http.Get(ts.URL + "/v0/groups/grp/mcp")
+	if err != nil {
+		t.Fatalf("GET /v0/groups/grp/mcp: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotFound {
+		t.Fatalf("GET /v0/groups/grp/mcp = 404, want mounted handler")
+	}
+
+	// Other paths still 404.
+	resp2, err := http.Get(ts.URL + "/bogus")
+	if err != nil {
+		t.Fatalf("GET /bogus: %v", err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+	if resp2.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET /bogus = %d, want 404", resp2.StatusCode)
+	}
+}
+
+func TestStreamingServerSyncToolsNilGateway(t *testing.T) {
+	// SyncTools on a server with no gateway must be a no-op, not a panic.
+	s := &StreamingServer{}
+	s.SyncTools()
+}
+
 func TestStreamingServerSyncTools(t *testing.T) {
 	g := setupTestGateway(t, mcp.Tool{Name: "t1"})
 	srv := NewStreamingServer(g, "test", "0.1.0")
