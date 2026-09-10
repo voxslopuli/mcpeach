@@ -217,3 +217,31 @@ func TestSaveCreatesDir(t *testing.T) {
 		t.Errorf("saved file not found: %v", err)
 	}
 }
+
+func TestSplitCanonical(t *testing.T) {
+	tests := []struct {
+		name       string
+		in         string
+		wantServer string
+		wantTool   string
+		wantOK     bool
+	}{
+		{"simple", "a__t1", "a", "t1", true},
+		{"tool contains separator", "a__t__x", "a", "t__x", true},
+		{"no separator", "at1", "", "", false},
+		{"empty server", "__t1", "", "", false},
+		{"empty tool", "a__", "", "", false},
+		{"empty string", "", "", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server, tool, ok := SplitCanonical(tt.in)
+			if ok != tt.wantOK {
+				t.Errorf("SplitCanonical(%q) ok = %v, want %v", tt.in, ok, tt.wantOK)
+			}
+			if server != tt.wantServer || tool != tt.wantTool {
+				t.Errorf("SplitCanonical(%q) = (%q, %q), want (%q, %q)", tt.in, server, tool, tt.wantServer, tt.wantTool)
+			}
+		})
+	}
+}

@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -91,11 +90,10 @@ func (g *Gateway) GroupTools(name string) []mcp.Tool {
 	// Build the catalog of canonical tools per server in a single pass.
 	catalog := map[string][]string{}
 	for canonical := range g.tools {
-		idx := strings.Index(canonical, "__")
-		if idx < 0 {
+		srvName, _, ok := config.SplitCanonical(canonical)
+		if !ok {
 			continue
 		}
-		srvName := canonical[:idx]
 		if s, ok := g.cfg.Servers[srvName]; ok && s.Enabled {
 			catalog[srvName] = append(catalog[srvName], canonical)
 		}
@@ -159,11 +157,10 @@ func (g *Gateway) CloseClient(server string) {
 // It records the call in the gateway's metrics.
 func (g *Gateway) CallTool(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name := req.Params.Name
-	idx := strings.Index(name, "__")
-	if idx < 0 {
+	server, tool, ok := config.SplitCanonical(name)
+	if !ok {
 		return nil, fmt.Errorf("invalid tool name %q (want <server>__<tool>)", name)
 	}
-	server, tool := name[:idx], name[idx+2:]
 
 	g.mu.RLock()
 	c, ok := g.clients[server]
