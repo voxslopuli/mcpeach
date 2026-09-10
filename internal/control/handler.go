@@ -51,12 +51,17 @@ func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) ht
 }
 
 func (h *Handler) listServers(w http.ResponseWriter, r *http.Request) {
-	// The manager tracks servers by name; expose their state.
-	// For now, derive from config (manager state is populated on start).
+	// Report the actual operational state from the manager where known.
 	resp := ListServersResponse{Servers: []ServerInfo{}}
 	if h.cfg != nil {
 		for name := range h.cfg.Servers {
-			resp.Servers = append(resp.Servers, ServerInfo{Name: name, State: "stopped"})
+			state := "stopped"
+			if h.mgr != nil {
+				if s := h.mgr.Server(name); s != nil {
+					state = s.State().String()
+				}
+			}
+			resp.Servers = append(resp.Servers, ServerInfo{Name: name, State: state})
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -162,10 +167,16 @@ func (s *Server) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Restrict the socket to the owner: it can start/stop processes.
+	if err := os.Chmod(s.sock, 0o600); err != nil {
+		ln.Close()
+		return err
+	}
 	s.httpSrv = &http.Server{Handler: s.handler}
 	go func() {
 		<-ctx.Done()
 		s.httpSrv.Close()
+		os.Remove(s.sock)
 	}()
 	go s.httpSrv.Serve(ln)
 	return nil

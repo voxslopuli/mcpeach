@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 )
@@ -17,10 +18,21 @@ type Client struct {
 	http *http.Client
 }
 
-// New builds a client for the given base URL (e.g. "http://unix" with a unix
-// socket transport, or an httptest server URL).
+// New builds a client for the given base URL using the default transport
+// (e.g. an httptest server URL). For a unix-socket API, use NewUnix.
 func New(base string) *Client {
 	return &Client{base: strings.TrimSuffix(base, "/"), http: &http.Client{}}
+}
+
+// NewUnix builds a client that talks to a unix-socket HTTP API. The base URL
+// should be "http://unix" and the socket path is dialed directly.
+func NewUnix(sock string) *Client {
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return net.Dial("unix", sock)
+		},
+	}
+	return &Client{base: "http://unix", http: &http.Client{Transport: transport}}
 }
 
 // ServerInfo mirrors the control-plane ServerInfo.

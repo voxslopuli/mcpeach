@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
+	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/control"
+	"github.com/mcpeach/mcpeach/internal/gateway"
+	"github.com/mcpeach/mcpeach/internal/server"
 )
 
 // newTestClient builds a client pointed at an in-memory handler.
@@ -67,5 +71,30 @@ func TestClientError(t *testing.T) {
 	c := New(srv.URL)
 	if _, err := c.ListServers(context.Background()); err == nil {
 		t.Fatal("ListServers on 404: want error, got nil")
+	}
+}
+
+func TestNewUnix(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "mcpeach.sock")
+
+	// Start a control server on the unix socket.
+	mgr := server.NewManager()
+	gw := gateway.New(&config.Config{})
+	ctrl := control.NewServer(sock, control.NewHandler(mgr, gw, &config.Config{}))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := ctrl.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// The client should talk to the unix socket.
+	c := NewUnix(sock)
+	servers, err := c.ListServers(context.Background())
+	if err != nil {
+		t.Fatalf("ListServers over unix socket: %v", err)
+	}
+	if servers == nil {
+		t.Fatal("ListServers returned nil")
 	}
 }
