@@ -142,9 +142,6 @@ func TestValidate(t *testing.T) {
 		{"group references missing server", func(c *Config) {
 			c.Groups["g"] = GroupConfig{IncludedServers: []string{"nope"}}
 		}, true},
-		{"group references missing server", func(c *Config) {
-			c.Groups["g"] = GroupConfig{IncludedServers: []string{"nope"}}
-		}, true},
 		{"group references missing tool server prefix", func(c *Config) {
 			c.Groups["g"] = GroupConfig{IncludedTools: []string{"nope__tool"}}
 		}, true},
