@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -301,9 +302,13 @@ type serviceManager interface {
 	Status() (service.Status, error)
 }
 
-// newServiceManager builds a service manager wired to the daemon.
+// newServiceManager builds a service manager wired to the daemon. Errors the
+// daemon returns under service mode are logged so they are not silently
+// dropped.
 func newServiceManager() (serviceManager, error) {
-	return service.NewManager(runDaemon, func() {})
+	return service.NewManager(runDaemon, func() {}, func(err error) {
+		log.Printf("mcpeach service: %v", err)
+	})
 }
 
 // serviceManagerFactory is overridable in tests to inject a fake manager.

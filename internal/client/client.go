@@ -31,7 +31,7 @@ func New(base string) *Client {
 func NewUnix(sock string) *Client {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return net.Dial("unix", sock)
+			return (&net.Dialer{}).DialContext(ctx, "unix", sock)
 		},
 	}
 	return &Client{base: "http://unix", http: &http.Client{Transport: transport}}

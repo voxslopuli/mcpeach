@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -66,7 +67,7 @@ func TestStatus(t *testing.T) {
 }
 
 func TestNewManager(t *testing.T) {
-	m, err := NewManager(func(ctx context.Context) error { return nil }, func() {})
+	m, err := NewManager(func(ctx context.Context) error { return nil }, func() {}, nil)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
@@ -112,7 +113,7 @@ func TestProgramStartStop(t *testing.T) {
 	}
 }
 
-func TestProgramConcurrentStartStopIdempotent(t *testing.T) {
+func TestProgramConcurrentStopIdempotent(t *testing.T) {
 	var stopCalls int32
 	p := &Program{
 		run: func(ctx context.Context) error {
@@ -121,14 +122,13 @@ func TestProgramConcurrentStartStopIdempotent(t *testing.T) {
 		},
 		stop: func() { atomic.AddInt32(&stopCalls, 1) },
 	}
+	if err := p.Start(nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
 
 	var wg sync.WaitGroup
 	for range 20 {
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			_ = p.Start(nil)
-		}()
+		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			_ = p.Stop(nil)
@@ -138,5 +138,92 @@ func TestProgramConcurrentStartStopIdempotent(t *testing.T) {
 
 	if got := atomic.LoadInt32(&stopCalls); got != 1 {
 		t.Errorf("stop hook calls = %d, want 1 (idempotent shutdown)", got)
+	}
+}
+
+func TestProgramReuse(t *testing.T) {
+	ctxs := make(chan context.Context, 2)
+	var stopCalls int32
+	p := &Program{
+		run: func(ctx context.Context) error {
+			ctxs <- ctx
+			<-ctx.Done()
+			return nil
+		},
+		stop: func() { atomic.AddInt32(&stopCalls, 1) },
+	}
+
+	for i := 1; i <= 2; i++ {
+		if err := p.Start(nil); err != nil {
+			t.Fatalf("Start %d: %v", i, err)
+		}
+		<-ctxs // wait for the run goroutine to begin
+		if err := p.Stop(nil); err != nil {
+			t.Fatalf("Stop %d: %v", i, err)
+		}
+	}
+
+	if got := atomic.LoadInt32(&stopCalls); got != 2 {
+		t.Errorf("stop hook calls = %d, want 2 across a reused Program", got)
+	}
+}
+
+func TestProgramStartCancelsPriorRun(t *testing.T) {
+	ctxs := make(chan context.Context, 2)
+	p := &Program{
+		run: func(ctx context.Context) error {
+			ctxs <- ctx
+			<-ctx.Done()
+			return nil
+		},
+	}
+	t.Cleanup(func() { _ = p.Stop(nil) })
+
+	if err := p.Start(nil); err != nil {
+		t.Fatalf("Start 1: %v", err)
+	}
+	first := <-ctxs
+	if err := p.Start(nil); err != nil {
+		t.Fatalf("Start 2: %v", err)
+	}
+	<-ctxs
+	select {
+	case <-first.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Start did not cancel the prior run's context")
+	}
+}
+
+func TestStopBeforeStart(t *testing.T) {
+	var stopCalls int32
+	p := &Program{
+		run:  func(ctx context.Context) error { return nil },
+		stop: func() { atomic.AddInt32(&stopCalls, 1) },
+	}
+	if err := p.Stop(nil); err != nil {
+		t.Fatalf("Stop before Start: %v", err)
+	}
+	if got := atomic.LoadInt32(&stopCalls); got != 0 {
+		t.Errorf("stop hook calls = %d, want 0 before any Start", got)
+	}
+}
+
+func TestProgramLogsErrors(t *testing.T) {
+	wantErr := errors.New("daemon boom")
+	logged := make(chan error, 1)
+	p := &Program{
+		run: func(ctx context.Context) error { return wantErr },
+		log: func(err error) { logged <- err },
+	}
+	if err := p.Start(nil); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	select {
+	case err := <-logged:
+		if !errors.Is(err, wantErr) {
+			t.Errorf("logged error = %v, want %v", err, wantErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("log callback was not called with the run error")
 	}
 }

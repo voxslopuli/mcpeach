@@ -123,8 +123,13 @@ func Load(path string) (*Config, error) {
 	return c, nil
 }
 
-// Save writes the config to path, creating parent directories.
+// Save writes the config to path atomically: it marshals to a temporary file
+// in the same directory and renames it over path, so an interrupted write can
+// never leave a truncated config behind. Parent directories are created.
 func Save(path string, c *Config) error {
+	if c == nil {
+		return errors.New("config is nil")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -132,7 +137,27 @@ func Save(path string, c *Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o600)
+	// Write to a unique temp file in the same dir, fsync it, then rename
+	// (atomic on POSIX). CreateTemp avoids collisions under concurrent saves;
+	// the deferred remove guarantees cleanup on every error path.
+	f, err := os.CreateTemp(filepath.Dir(path), "mcpeach-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer func() { _ = os.Remove(tmp) }()
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // Validate checks the config for structural errors.
