@@ -1053,3 +1053,22 @@ func TestConcurrentAddAndGatewayRead(t *testing.T) {
 		t.Fatalf("live config has %d servers, want %d (lost updates)", len(live.Servers), want)
 	}
 }
+
+// TestStartServerUnknownToManager covers the MarkRunning non-transition error
+// path: a server present in config but absent from the manager yields a 500
+// (the manager reports "unknown server"), not a silent success.
+func TestStartServerUnknownToManager(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"ghost": {Command: "echo", Enabled: true},
+		},
+	}
+	// Manager has no servers registered; the config references "ghost".
+	h := newHandlerWithConfig(t, cfg)
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/ghost/start", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (unknown to manager)", rec.Code)
+	}
+}
