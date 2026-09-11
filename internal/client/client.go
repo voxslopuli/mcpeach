@@ -139,6 +139,11 @@ func (c *Client) UpdateServer(ctx context.Context, name string, req AddServerReq
 	return c.do(ctx, http.MethodPut, "/v0/servers/"+url.PathEscape(name), bytes.NewReader(body), nil)
 }
 
+// DeleteServer removes a server via DELETE /v0/servers/{name}.
+func (c *Client) DeleteServer(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodDelete, "/v0/servers/"+url.PathEscape(name), nil, nil)
+}
+
 // do performs an HTTP request and decodes the JSON response, returning an
 // error for non-2xx statuses.
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader, out any) error {

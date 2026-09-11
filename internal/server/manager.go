@@ -53,6 +53,15 @@ func (m *Manager) Server(name string) *Server {
 	return m.servers[name]
 }
 
+// Remove deregisters a server and its log ring from the manager. It does not
+// stop a running process; call Stop first if needed.
+func (m *Manager) Remove(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.servers, name)
+	delete(m.logs, name)
+}
+
 // MarkRunning transitions a server to the running state. It is used when the
 // process is owned by an external client (e.g. the connect layer's mcp-go
 // stdio client) rather than spawned by the manager.

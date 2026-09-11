@@ -32,6 +32,9 @@ func (r *addRecorder) UpdateServer(ctx context.Context, name string, req client.
 	r.req = req
 	return nil
 }
+func (r *addRecorder) DeleteServer(ctx context.Context, name string) error {
+	return nil
+}
 func (r *addRecorder) GetServer(ctx context.Context, name string) (client.ServerDetail, error) {
 	return client.ServerDetail{}, nil
 }

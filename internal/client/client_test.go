@@ -293,3 +293,20 @@ func TestUpdateServer(t *testing.T) {
 		t.Errorf("command = %q, want npx after update", d.Command)
 	}
 }
+
+func TestDeleteServer(t *testing.T) {
+	cfg := config.Default()
+	cfg.Servers["srv"] = config.ServerConfig{Command: "echo", Enabled: true}
+	h := control.NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := New(srv.URL)
+
+	if err := c.DeleteServer(context.Background(), "srv"); err != nil {
+		t.Fatalf("DeleteServer: %v", err)
+	}
+	// The server must be gone from the API.
+	if _, err := c.GetServer(context.Background(), "srv"); err == nil {
+		t.Error("deleted server still reachable via GetServer")
+	}
+}

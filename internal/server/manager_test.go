@@ -243,3 +243,19 @@ func TestManagerLogsUnknown(t *testing.T) {
 		t.Fatalf("Logs unknown server = %v, want nil", logs)
 	}
 }
+
+func TestManagerRemove(t *testing.T) {
+	m := NewManager()
+	m.Add(New("a"))
+	m.Add(New("b"))
+	if m.Server("a") == nil {
+		t.Fatal("server a not registered")
+	}
+	m.Remove("a")
+	if m.Server("a") != nil {
+		t.Error("server a still registered after Remove")
+	}
+	if m.Server("b") == nil {
+		t.Error("server b should be unaffected by Remove(a)")
+	}
+}
