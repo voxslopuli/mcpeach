@@ -30,6 +30,20 @@ import (
 var version = "dev"
 
 func main() {
+	root := newRootCommand()
+
+	// executeRoot runs the CLI with signal-aware context cancellation.
+	// WithNotifySignal installs a signal.NotifyContext over ctx so SIGINT and
+	// SIGTERM cancel the command context. Without it, every shutdown goroutine
+	// keyed on ctx.Done() (control-socket cleanup, gateway.Close) is dead code
+	// and stdio subprocesses leak on Ctrl-C or a launchd/systemd stop.
+	if err := executeRoot(root); err != nil {
+		os.Exit(1)
+	}
+}
+
+// newRootCommand builds the root CLI command with all subcommands attached.
+func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "mcpeach",
 		Short: "A local MCP gateway with a TUI",
@@ -38,16 +52,15 @@ single streamable-HTTP endpoint, permissions tools, and exposes curated
 tool groups to clients.`,
 		Version: version,
 	}
-
 	root.AddCommand(serveCmd(), tuiCmd(), importCmd(), exportCmd(), installCmd(), uninstallCmd(), statusCmd())
+	return root
+}
 
-	// WithNotifySignal installs a signal.NotifyContext over ctx so SIGINT and
-	// SIGTERM cancel the command context. Without it, every shutdown goroutine
-	// keyed on ctx.Done() (control-socket cleanup, gateway.Close) is dead code
-	// and stdio subprocesses leak on Ctrl-C or a launchd/systemd stop.
-	if err := fang.Execute(context.Background(), root, fang.WithNotifySignal(os.Interrupt, syscall.SIGTERM)); err != nil {
-		os.Exit(1)
-	}
+// executeRoot runs the root command with SIGINT/SIGTERM cancelling the
+// command context. Extracted from main so tests can exercise the signal
+// wiring without spawning a subprocess.
+func executeRoot(root *cobra.Command) error {
+	return fang.Execute(context.Background(), root, fang.WithNotifySignal(os.Interrupt, syscall.SIGTERM))
 }
 
 // serveCmd runs the mcpeach daemon: it loads config, wires the gateway and

@@ -580,7 +580,7 @@ func TestServeHandlesSIGTERM(t *testing.T) {
 	sock := config.SocketPath()
 
 	var stdout, stderr bytes.Buffer
-	cmd := exec.Command(bin, "serve")
+	cmd := exec.Command(filepath.Clean(bin), "serve")
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
@@ -722,5 +722,16 @@ func waitForProcessGone(pattern string, timeout time.Duration) []int {
 			return pids
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestExecuteRoot(t *testing.T) {
+	// executeRoot wires SIGINT/SIGTERM cancellation into fang.Execute. With
+	// no subcommand it shows help and returns nil; the point is exercising
+	// the signal-wiring line in-process (the E2E SIGTERM test covers the
+	// actual signal path via a spawned binary).
+	root := newRootCommand()
+	if err := executeRoot(root); err != nil {
+		t.Fatalf("executeRoot: %v", err)
 	}
 }
