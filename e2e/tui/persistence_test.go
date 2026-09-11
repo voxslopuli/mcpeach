@@ -11,12 +11,9 @@ import (
 func TestPersistenceSurvivesRestart(t *testing.T) {
 	fx := harness.NewFixture(t)
 	fake := harness.BuildFakeMCP(t)
-	fx.WriteConfig(map[string]map[string]any{
-		"fake": {"command": fake, "enabled": true},
-	})
 
 	// First daemon run.
-	d1 := harness.StartDaemon(t, binPath, fx.Root, fx.Env())
+	d1, _ := fx.Setup(t, binPath, harness.FakeServerConfig(fake), "persist1", 80, 24)
 	harness.AssertAPI(t, d1, "GET", "/v0/servers", "", 200, "fake")
 	d1.Stop()
 
@@ -24,5 +21,5 @@ func TestPersistenceSurvivesRestart(t *testing.T) {
 	d2 := harness.StartDaemon(t, binPath, fx.Root, fx.Env())
 	defer d2.Stop()
 	harness.AssertAPI(t, d2, "GET", "/v0/servers", "", 200, "fake")
-	harness.AssertAPI(t, d2, "GET", "/v0/tools", "", 200, "fake__echo")
+	harness.AssertToolRegistered(t, d2)
 }

@@ -3,35 +3,16 @@ package tui
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"github.com/mcpeach/mcpeach/e2e/harness"
 )
 
-// buildStreamable builds the streamable fixture and returns its path.
-func buildStreamable(t *testing.T) string {
-	t.Helper()
-	dir := filepath.Join(os.TempDir(), "mcpeach-e2e-fixtures")
-	_ = os.MkdirAll(dir, 0o755)
-	bin := filepath.Join(dir, "streamable")
-	if _, err := os.Stat(bin); err == nil {
-		return bin
-	}
-	cmd := exec.Command("go", "build", "-o", bin, "github.com/mcpeach/mcpeach/e2e/fixtures/streamable")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("build streamable: %v", err)
-	}
-	return bin
-}
-
 // TestRemoteServerLifecycle verifies a streamable-HTTP remote server can be
 // configured, started, and its tools exposed.
 func TestRemoteServerLifecycle(t *testing.T) {
 	fx := harness.NewFixture(t)
-	streamable := buildStreamable(t)
+	streamable := harness.BuildStreamable(t)
 	// Start the streamable fixture and capture its address.
 	cmd := exec.Command(streamable) // nosemgrep go_subproc_rule-subproc,go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd.Env = append(os.Environ(), "STREAMABLE_ADDR=127.0.0.1:0")
