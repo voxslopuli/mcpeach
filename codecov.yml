@@ -8,3 +8,9 @@ coverage:
       default:
         target: 80%
         threshold: 0%
+        paths:
+          - "!**/*_test.go"
+ignore:
+  - "**/*_test.go"
+  - "cmd/mcpeach/signals_windows.go"
+  - "testdata/**"

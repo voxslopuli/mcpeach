@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -9,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -352,9 +355,12 @@ func TestRunDaemonRemoteConnectFail(t *testing.T) {
 // goroutine, returning a cancel func and the daemon's error channel.
 func bootDaemon(t *testing.T, cfg *config.Config) (context.CancelFunc, chan error) {
 	t.Helper()
-	// short XDG dir for the unix socket path limit
-	dir := filepath.Join(os.TempDir(), "mcpeach-daemon-test")
-	_ = os.RemoveAll(dir)
+	// Short XDG dir for the unix socket path limit; MkdirTemp keeps the name
+	// unique so parallel test runs cannot collide on the same path.
+	dir, err := os.MkdirTemp(os.TempDir(), "mcpeach-daemon-test")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("XDG_RUNTIME_DIR", dir)
@@ -545,4 +551,224 @@ func TestRunDaemonPopulatesGateway(t *testing.T) {
 		"disabled": {Command: bin, Enabled: false},
 	}
 	runDaemonAndWaitForTool(t, cfg, "fake__echo")
+}
+
+// TestServeHandlesSIGTERM is an end-to-end check of the daemon's signal path:
+// it spawns the real mcpeach binary, waits for the control socket, sends
+// SIGTERM, and asserts the process exits promptly, removes the socket, and
+// reaps the stdio MCP subprocess. It exercises the fang.WithNotifySignal
+// wiring in main(), which in-process tests cannot reach.
+func TestServeHandlesSIGTERM(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns a real process; skipped in -short mode")
+	}
+
+	bin := buildMcpeachBinary(t)
+	fakeBin := testutil.BuildFakeServer(t)
+	cmd, waitCh, dump, sock := spawnServe(t, bin, fakeBin)
+
+	// Wait for the control socket to accept connections, failing fast if the
+	// daemon dies during startup.
+	waitForSocketReady(t, sock, waitCh, dump, 15*time.Second)
+
+	// The daemon connects to the stdio server before it binds the socket, so
+	// the fake-mcp child is running by now. Record its PID to prove it is
+	// reaped on shutdown.
+	childPID := waitForChildPID(t, sock, "fake", 5*time.Second)
+	if childPID == 0 {
+		t.Fatalf("fake-mcp child never appeared\n%s", dump())
+	}
+
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("SIGTERM: %v", err)
+	}
+
+	select {
+	case err := <-waitCh:
+		if err != nil {
+			t.Fatalf("serve exited with error after SIGTERM: %v\n%s", err, dump())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("serve did not exit within 5s of SIGTERM\n%s", dump())
+	}
+
+	// The control-plane shutdown goroutine removes the socket on ctx.Done.
+	if _, err := os.Stat(sock); !os.IsNotExist(err) {
+		t.Errorf("control socket %s still present after shutdown (stat err = %v)", sock, err)
+	}
+
+	// The stdio subprocess must be reaped (gw.Close closes the client).
+	if !waitForProcessGone(childPID, 5*time.Second) {
+		t.Errorf("orphaned fake-mcp process %d still running after shutdown", childPID)
+	}
+}
+
+// spawnServe writes a config with one fake stdio server and starts the
+// mcpeach serve binary, returning the process handle, its wait channel, a
+// stdout/stderr dump helper, and the control socket path.
+func spawnServe(t *testing.T, bin, fakeBin string) (*exec.Cmd, chan error, func() string, string) {
+	t.Helper()
+	// Short XDG dir: the control socket path must stay under the ~108-byte
+	// unix-socket limit, so avoid t.TempDir() (too long on macOS).
+	dir := shortXDGDir(t, "mcpeach-sigterm")
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+
+	cfg := config.Default()
+	cfg.Gateway.Addr = "127.0.0.1:0"
+	cfg.Servers = map[string]config.ServerConfig{
+		"fake": {Command: fakeBin, Enabled: true},
+	}
+	if err := config.Save(config.Path(), cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	sock := config.SocketPath()
+
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command(filepath.Clean(bin), "serve") // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command, go_subproc_rule-subproc — bin is a t.TempDir() build path (trusted test input); exec.Command does not invoke a shell.
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start serve: %v", err)
+	}
+	dump := func() string { return "stdout:\n" + stdout.String() + "\nstderr:\n" + stderr.String() }
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		select {
+		case <-waitCh:
+		default:
+		}
+	})
+	return cmd, waitCh, dump, sock
+}
+
+// waitForSocketReady polls until the unix socket accepts connections, failing
+// the test if the daemon exits first or the deadline passes.
+func waitForSocketReady(t *testing.T, sock string, waitCh chan error, dump func() string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	ready := false
+	for time.Now().Before(deadline) {
+		if conn, err := net.Dial("unix", sock); err == nil {
+			_ = conn.Close()
+			ready = true
+			break
+		}
+		select {
+		case err := <-waitCh:
+			t.Fatalf("serve exited before the socket was ready: %v\n%s", err, dump())
+		default:
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatalf("control socket %s not ready within %s\n%s", sock, timeout, dump())
+	}
+}
+
+// buildMcpeachBinary compiles the mcpeach CLI from the current package into a
+// temp dir and returns the binary path.
+func buildMcpeachBinary(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "mcpeach")
+	cmd := exec.Command("go", "build", "-o", bin, ".")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build mcpeach: %v\n%s", err, out)
+	}
+	return bin
+}
+
+// shortXDGDir creates a short XDG base dir under os.TempDir(). The unix socket
+// path derived from it must fit the ~108-byte sockaddr_un limit, which
+// t.TempDir() paths on macOS do not.
+func shortXDGDir(t *testing.T, name string) string {
+	t.Helper()
+	// MkdirTemp keeps the name unique so parallel test runs cannot collide;
+	// the short prefix keeps the unix socket path under the ~108-byte limit.
+	dir, err := os.MkdirTemp(os.TempDir(), name)
+	if err != nil {
+		t.Fatalf("mkdir %s: %v", name, err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod %s: %v", dir, err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+// childPIDFromLogs fetches the fake-mcp child PID from the daemon's log ring
+// (fake-mcp emits its PID in the startup JSON line). Returns 0 if not found.
+func childPIDFromLogs(t *testing.T, sock, name string) int {
+	t.Helper()
+	c := client.NewUnix(sock)
+	lines, err := c.ServerLogs(context.Background(), name)
+	if err != nil {
+		return 0
+	}
+	for _, line := range lines {
+		var entry struct {
+			PID int `json:"pid"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err == nil && entry.PID > 0 {
+			return entry.PID
+		}
+	}
+	return 0
+}
+
+// processAlive reports whether a process with the given PID exists, using a
+// portable signal-0 probe (no pgrep dependency).
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return p.Signal(syscall.Signal(0)) == nil
+}
+
+// waitForChildPID polls until the fake-mcp child PID appears in the daemon
+// logs, returning it, or 0 on timeout.
+func waitForChildPID(t *testing.T, sock, name string, timeout time.Duration) int {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if pid := childPIDFromLogs(t, sock, name); pid > 0 {
+			return pid
+		}
+		if time.Now().After(deadline) {
+			return 0
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// waitForProcessGone polls until the process with pid no longer exists,
+// returning true when it is gone.
+func waitForProcessGone(pid int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if !processAlive(pid) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestExecuteRoot(t *testing.T) {
+	// executeRoot wires SIGINT/SIGTERM cancellation into fang.Execute. With
+	// no subcommand it shows help and returns nil; the point is exercising
+	// the signal-wiring line in-process (the E2E SIGTERM test covers the
+	// actual signal path via a spawned binary).
+	root := newRootCommand()
+	if err := executeRoot(root); err != nil {
+		t.Fatalf("executeRoot: %v", err)
+	}
 }
