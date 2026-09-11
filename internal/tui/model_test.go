@@ -471,3 +471,20 @@ func (e *errClient) StopServer(ctx context.Context, name string) error {
 func (e *errClient) AddServer(ctx context.Context, req client.AddServerRequest) error {
 	return fmt.Errorf("boom")
 }
+
+func TestLoadCommandsSurfaceErrors(t *testing.T) {
+	m := NewModel(&errClient{})
+	m.servers = []client.ServerInfo{{Name: "srv"}}
+	m.selected = 0
+
+	// Each load command must return a msg carrying the error.
+	if msg := m.loadServersCmd()(); !strings.Contains(msg.(serversLoadedMsg).err.Error(), "boom") {
+		t.Errorf("loadServersCmd err = %v, want boom", msg.(serversLoadedMsg).err)
+	}
+	if msg := m.loadLogsCmd("srv")(); !strings.Contains(msg.(logsLoadedMsg).err.Error(), "boom") {
+		t.Errorf("loadLogsCmd err = %v, want boom", msg.(logsLoadedMsg).err)
+	}
+	if msg := m.loadToolsCmd()(); !strings.Contains(msg.(toolsLoadedMsg).err.Error(), "boom") {
+		t.Errorf("loadToolsCmd err = %v, want boom", msg.(toolsLoadedMsg).err)
+	}
+}
