@@ -50,6 +50,16 @@ type ServerDetail struct {
 	Enabled   bool              `json:"enabled"`
 	Env       map[string]string `json:"env,omitempty"`
 	ToolCount int               `json:"tool_count"`
+	Tools     []string          `json:"tools,omitempty"`
+	Process   *ProcessDetail    `json:"process,omitempty"`
+}
+
+// ProcessDetail mirrors processinfo.Info for a server detail response.
+type ProcessDetail struct {
+	PID        int32    `json:"pid"`
+	CPUPercent float64  `json:"cpu_percent"`
+	RSS        uint64   `json:"rss_bytes"`
+	Ports      []string `json:"ports"`
 }
 
 // ListToolsResponse is the /v0/tools response.
@@ -170,10 +180,21 @@ func (h *Handler) getServer(w http.ResponseWriter, r *http.Request) {
 		transport = "stdio"
 	}
 	toolCount := 0
+	tools := []string{}
 	if h.gw != nil {
 		for _, t := range h.gw.Tools() {
 			if srv, _, ok := config.SplitCanonical(t.Name); ok && srv == name {
 				toolCount++
+				tools = append(tools, t.Name)
+			}
+		}
+	}
+	// Process info for local running servers (nil for remote/stopped).
+	var proc *ProcessDetail
+	if h.mgr != nil {
+		if pid := h.mgr.PID(name); pid != 0 {
+			if info, err := processinfo.Collect(r.Context(), pid); err == nil {
+				proc = &ProcessDetail{PID: info.PID, CPUPercent: info.CPUPercent, RSS: info.RSS, Ports: info.Ports}
 			}
 		}
 	}
@@ -187,6 +208,8 @@ func (h *Handler) getServer(w http.ResponseWriter, r *http.Request) {
 		Enabled:   sc.Enabled,
 		Env:       sc.Env,
 		ToolCount: toolCount,
+		Tools:     tools,
+		Process:   proc,
 	})
 }
 

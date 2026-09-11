@@ -1178,6 +1178,12 @@ func TestGetServerDetail(t *testing.T) {
 			t.Errorf("env = %v, want source reference keychain:mcpeach/github/TOKEN", resp.Env)
 		}
 	})
+
+	t.Run("tool names", func(t *testing.T) {
+		if len(resp.Tools) != 2 || resp.Tools[0] != "github__tool1" || resp.Tools[1] != "github__tool2" {
+			t.Errorf("tools = %v, want [github__tool1 github__tool2]", resp.Tools)
+		}
+	})
 }
 
 // getDetail issues GET /v0/servers/{name} against h and decodes the
