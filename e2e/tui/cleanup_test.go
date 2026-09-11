@@ -10,15 +10,9 @@ import (
 func TestCleanupStopKillsChild(t *testing.T) {
 	fx := harness.NewFixture(t)
 	fake := harness.BuildFakeMCP(t)
-	fx.WriteConfig(map[string]map[string]any{
+	d, s := fx.Setup(t, binPath, map[string]map[string]any{
 		"fake": {"command": fake, "enabled": true},
-	})
-	d := harness.StartDaemon(t, binPath, fx.Root, fx.Env())
-	defer d.Stop()
-
-	s := harness.NewSession(t, "cleanup", binPath, nil, fx.Env(), 80, 24)
-	defer s.Close()
-	harness.CollectArtifacts(t, s, d)
+	}, "cleanup", 80, 24)
 
 	s.Expect("fake")
 	s.Expect("running")

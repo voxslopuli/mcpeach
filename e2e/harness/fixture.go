@@ -52,6 +52,20 @@ func (f *Fixture) Env(overrides ...string) []string {
 	return append(env, overrides...)
 }
 
+// Setup starts a daemon and a TUI session against this fixture with the given
+// config, returning both. It registers cleanup so tests do not repeat the
+// boilerplate.
+func (f *Fixture) Setup(t *testing.T, bin string, servers map[string]map[string]any, sessionName string, cols, rows int) (*Daemon, *Session) {
+	t.Helper()
+	f.WriteConfig(servers)
+	d := StartDaemon(t, bin, f.Root, f.Env())
+	t.Cleanup(d.Stop)
+	s := NewSession(t, sessionName, bin, nil, f.Env(), cols, rows)
+	t.Cleanup(s.Close)
+	CollectArtifacts(t, s, d)
+	return d, s
+}
+
 // ConfigPath returns the config file path.
 func (f *Fixture) ConfigPath() string {
 	return filepath.Join(f.Root, "config", "mcpeach", "mcpeach.yml")
@@ -79,6 +93,11 @@ func (f *Fixture) WriteConfig(servers map[string]map[string]any) {
 				b = append(b, []byte(fmt.Sprintf("    %s:\n", k))...)
 				for _, item := range val {
 					b = append(b, []byte(fmt.Sprintf("      - %q\n", item))...)
+				}
+			case map[string]string:
+				b = append(b, []byte(fmt.Sprintf("    %s:\n", k))...)
+				for ek, ev := range val {
+					b = append(b, []byte(fmt.Sprintf("      %s: %q\n", ek, ev))...)
 				}
 			}
 		}

@@ -2,6 +2,7 @@ package harness
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -152,11 +153,11 @@ func (d *Daemon) API(method, path string, body string) (int, string) {
 		d.t.Fatalf("api %s %s: %v", method, path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	buf := make([]byte, resp.ContentLength)
-	if resp.ContentLength > 0 {
-		_, _ = resp.Body.Read(buf)
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		d.t.Fatalf("read api response: %v", err)
 	}
-	return resp.StatusCode, string(buf)
+	return resp.StatusCode, string(b)
 }
 
 // APIJSON performs a control-plane request and returns the raw body.

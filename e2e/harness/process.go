@@ -14,7 +14,7 @@ import (
 // if not found.
 func PidOf(t *testing.T, match string) int {
 	t.Helper()
-	out, err := exec.Command("pgrep", "-f", match).Output()
+	out, err := exec.Command("pgrep", "-f", match).Output() // NOSONAR S4036 fixed args, no shell
 	if err != nil {
 		return 0
 	}

@@ -10,15 +10,9 @@ import (
 func TestLogsView(t *testing.T) {
 	fx := harness.NewFixture(t)
 	fake := harness.BuildFakeMCP(t)
-	fx.WriteConfig(map[string]map[string]any{
+	_, s := fx.Setup(t, binPath, map[string]map[string]any{
 		"fake": {"command": fake, "enabled": true},
-	})
-	d := harness.StartDaemon(t, binPath, fx.Root, fx.Env())
-	defer d.Stop()
-
-	s := harness.NewSession(t, "logs", binPath, nil, fx.Env(), 100, 30)
-	defer s.Close()
-	harness.CollectArtifacts(t, s, d)
+	}, "logs", 100, 30)
 
 	s.Expect("fake")
 	s.Expect("running")
