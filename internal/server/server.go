@@ -76,7 +76,7 @@ func (s *Server) transition(to State) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !validTransitions[s.state][to] {
-		return fmt.Errorf("invalid transition %s -> %s", s.state, to)
+		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, s.state, to)
 	}
 	s.state = to
 	return nil
@@ -108,3 +108,7 @@ func (s *Server) Fail() error {
 
 // ErrNotRunning is returned when an operation requires a running server.
 var ErrNotRunning = errors.New("server is not running")
+
+// ErrInvalidTransition is returned when a lifecycle transition is not allowed
+// from the server's current state.
+var ErrInvalidTransition = errors.New("invalid state transition")
