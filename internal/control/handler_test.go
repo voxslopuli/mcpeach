@@ -1128,11 +1128,10 @@ func TestGetServerDetail(t *testing.T) {
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"github": {
-				Command:   "npx",
-				Args:      []string{"-y", "@modelcontextprotocol/server-github"},
-				Env:       map[string]string{"GITHUB_PERSONAL_ACCESS_TOKEN": "keychain:mcpeach/github/TOKEN"},
-				Enabled:   true,
-				Transport: "",
+				Command: "npx",
+				Args:    []string{"-y", "@modelcontextprotocol/server-github"},
+				Env:     map[string]string{"GITHUB_PERSONAL_ACCESS_TOKEN": "keychain:mcpeach/github/TOKEN"},
+				Enabled: true,
 			},
 		},
 	}
@@ -1155,31 +1154,40 @@ func TestGetServerDetail(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if resp.Name != "github" {
-		t.Errorf("name = %q, want github", resp.Name)
-	}
-	if resp.State != "stopped" {
-		t.Errorf("state = %q, want stopped", resp.State)
-	}
-	if resp.Transport != "stdio" {
-		t.Errorf("transport = %q, want stdio (derived from command)", resp.Transport)
-	}
-	if resp.Command != "npx" {
-		t.Errorf("command = %q, want npx", resp.Command)
-	}
-	if len(resp.Args) != 2 || resp.Args[0] != "-y" {
-		t.Errorf("args = %v, want [-y @modelcontextprotocol/server-github]", resp.Args)
-	}
-	if !resp.Enabled {
-		t.Error("enabled = false, want true")
-	}
-	if resp.ToolCount != 2 {
-		t.Errorf("toolCount = %d, want 2", resp.ToolCount)
-	}
+
+	t.Run("identity and state", func(t *testing.T) {
+		if resp.Name != "github" {
+			t.Errorf("name = %q, want github", resp.Name)
+		}
+		if resp.State != "stopped" {
+			t.Errorf("state = %q, want stopped", resp.State)
+		}
+		if !resp.Enabled {
+			t.Error("enabled = false, want true")
+		}
+		if resp.ToolCount != 2 {
+			t.Errorf("toolCount = %d, want 2", resp.ToolCount)
+		}
+	})
+
+	t.Run("stdio config", func(t *testing.T) {
+		if resp.Transport != "stdio" {
+			t.Errorf("transport = %q, want stdio (derived from command)", resp.Transport)
+		}
+		if resp.Command != "npx" {
+			t.Errorf("command = %q, want npx", resp.Command)
+		}
+		if len(resp.Args) != 2 || resp.Args[0] != "-y" {
+			t.Errorf("args = %v, want [-y @modelcontextprotocol/server-github]", resp.Args)
+		}
+	})
+
 	// Env values must be the SOURCE REFERENCES from config, never resolved.
-	if resp.Env["GITHUB_PERSONAL_ACCESS_TOKEN"] != "keychain:mcpeach/github/TOKEN" {
-		t.Errorf("env = %v, want source reference keychain:mcpeach/github/TOKEN", resp.Env)
-	}
+	t.Run("env source references", func(t *testing.T) {
+		if resp.Env["GITHUB_PERSONAL_ACCESS_TOKEN"] != "keychain:mcpeach/github/TOKEN" {
+			t.Errorf("env = %v, want source reference keychain:mcpeach/github/TOKEN", resp.Env)
+		}
+	})
 }
 
 func TestGetServerDetailRemote(t *testing.T) {
