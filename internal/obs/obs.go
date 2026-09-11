@@ -3,6 +3,8 @@
 package obs
 
 import (
+	"sync"
+
 	charmlog "github.com/charmbracelet/log"
 	"github.com/mcpeach/mcpeach/internal/logs"
 )
@@ -27,9 +29,20 @@ func NewLogger(component string) *Logger {
 	return &Logger{Logger: l.With("component", component), ring: ring}
 }
 
-// Default returns a Logger for the "mcpeach" component.
+// defaultOnce and defaultLogger back the process-wide Default singleton.
+var (
+	defaultOnce   sync.Once
+	defaultLogger *Logger
+)
+
+// Default returns the shared app-wide Logger for the "mcpeach" component. It
+// is a singleton: every caller (gateway, control plane) writes into the same
+// ring buffer, so the control plane's /v0/logs endpoint sees gateway logs too.
 func Default() *Logger {
-	return NewLogger("mcpeach")
+	defaultOnce.Do(func() {
+		defaultLogger = NewLogger("mcpeach")
+	})
+	return defaultLogger
 }
 
 // With returns a child logger with the given key-value pairs attached.

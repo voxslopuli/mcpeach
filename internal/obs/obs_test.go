@@ -68,3 +68,20 @@ func TestDefaultLogger(t *testing.T) {
 		t.Fatal("Default returned nil")
 	}
 }
+
+func TestDefaultSingleton(t *testing.T) {
+	a := Default()
+	b := Default()
+	if a.ring != b.ring {
+		t.Fatal("Default() returned distinct rings; want a shared singleton")
+	}
+
+	const sentinel = "obs-default-singleton-sentinel"
+	a.Info(sentinel)
+	for _, line := range b.Lines() {
+		if strings.Contains(line, sentinel) {
+			return
+		}
+	}
+	t.Fatalf("line logged via one Default() not visible via another; lines = %v", b.Lines())
+}
