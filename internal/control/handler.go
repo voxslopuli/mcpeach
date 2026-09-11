@@ -191,27 +191,8 @@ func (h *Handler) getServer(w http.ResponseWriter, r *http.Request) {
 // window between save and publish. The write is a small local YAML file on
 // the owner-only control socket, so the brief reader block is acceptable.
 func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
-	// Bound the request body to prevent memory exhaustion on the control socket.
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	var req AddServerRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	if strings.Contains(req.Name, "__") {
-		writeError(w, http.StatusBadRequest, "name cannot contain '__' (reserved for tool canonicalization)")
-		return
-	}
-	if req.Command != "" && req.URL != "" {
-		writeError(w, http.StatusBadRequest, "cannot set both command and url")
-		return
-	}
-	if req.Command == "" && req.URL == "" {
-		writeError(w, http.StatusBadRequest, "must set command or url")
+	req, ok := parseServerRequest(w, r, "")
+	if !ok {
 		return
 	}
 
@@ -231,10 +212,7 @@ func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
 	// untouched. The explicit map rebuild keeps mutating candidate.Servers
 	// from affecting the published snapshot.
 	candidate := *cfg
-	candidate.Servers = make(map[string]config.ServerConfig, len(cfg.Servers)+1)
-	for k, v := range cfg.Servers {
-		candidate.Servers[k] = v
-	}
+	candidate.Servers = copyServers(cfg.Servers)
 	candidate.Servers[req.Name] = config.ServerConfig{
 		Command:   req.Command,
 		Args:      req.Args,
@@ -247,21 +225,41 @@ func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := config.Save(h.configPath, &candidate); err != nil {
-		writeError(w, http.StatusInternalServerError, "save config: "+err.Error())
+	if !h.publishCandidate(w, &candidate) {
 		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"name": req.Name})
+}
+
+// copyServers returns a fresh map with the same entries, so mutating the copy
+// cannot affect the published snapshot.
+func copyServers(src map[string]config.ServerConfig) map[string]config.ServerConfig {
+	out := make(map[string]config.ServerConfig, len(src)+1)
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+// publishCandidate persists the candidate atomically and, on success,
+// publishes it (config snapshot + gateway). Returns false (after writing the
+// error response) when the save fails. The caller must hold h.mu.
+func (h *Handler) publishCandidate(w http.ResponseWriter, candidate *config.Config) bool {
+	if err := config.Save(h.configPath, candidate); err != nil {
+		writeError(w, http.StatusInternalServerError, "save config: "+err.Error())
+		return false
 	}
 	// Publish only after save succeeds. The atomic Store swaps the whole
 	// snapshot, so readers never observe a half-built config. The mutex stays
-	// held across the sequence so two concurrent adds cannot both build from
-	// the same base and lose one update.
-	h.cfg.Store(&candidate)
-	// Keep the gateway's snapshot in step so a server added here can be
-	// started (and its tools registered) without a daemon restart.
+	// held across the sequence so two concurrent mutations cannot both build
+	// from the same base and lose one update.
+	h.cfg.Store(candidate)
+	// Keep the gateway's snapshot in step so config changes are visible
+	// without a daemon restart.
 	if h.gw != nil {
-		h.gw.SetConfig(&candidate)
+		h.gw.SetConfig(candidate)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"name": req.Name})
+	return true
 }
 
 // updateServer applies an edit to an existing server. It follows the same
@@ -271,25 +269,8 @@ func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
 // restart_required so the client can decide whether to restart.
 func (h *Handler) updateServer(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	var req AddServerRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if req.Name == "" {
-		req.Name = name // default: keep the existing name
-	}
-	if strings.Contains(req.Name, "__") {
-		writeError(w, http.StatusBadRequest, "name cannot contain '__' (reserved for tool canonicalization)")
-		return
-	}
-	if req.Command != "" && req.URL != "" {
-		writeError(w, http.StatusBadRequest, "cannot set both command and url")
-		return
-	}
-	if req.Command == "" && req.URL == "" {
-		writeError(w, http.StatusBadRequest, "must set command or url")
+	req, ok := parseServerRequest(w, r, name)
+	if !ok {
 		return
 	}
 
@@ -314,10 +295,7 @@ func (h *Handler) updateServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	candidate := *cfg
-	candidate.Servers = make(map[string]config.ServerConfig, len(cfg.Servers))
-	for k, v := range cfg.Servers {
-		candidate.Servers[k] = v
-	}
+	candidate.Servers = copyServers(cfg.Servers)
 	newSC := config.ServerConfig{
 		Command:   req.Command,
 		Args:      req.Args,
@@ -334,13 +312,8 @@ func (h *Handler) updateServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := config.Save(h.configPath, &candidate); err != nil {
-		writeError(w, http.StatusInternalServerError, "save config: "+err.Error())
+	if !h.publishCandidate(w, &candidate) {
 		return
-	}
-	h.cfg.Store(&candidate)
-	if h.gw != nil {
-		h.gw.SetConfig(&candidate)
 	}
 
 	// A running server whose runtime-affecting fields changed needs a restart.
@@ -355,6 +328,38 @@ func (h *Handler) updateServer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"name": req.Name, "restart_required": restartRequired})
+}
+
+// parseServerRequest decodes and validates a server request body. On failure
+// it writes the error response and returns false. defaultName is used when
+// the body omits the name (PUT keeps the existing name).
+func parseServerRequest(w http.ResponseWriter, r *http.Request, defaultName string) (AddServerRequest, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var req AddServerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return req, false
+	}
+	if req.Name == "" {
+		req.Name = defaultName
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return req, false
+	}
+	if strings.Contains(req.Name, "__") {
+		writeError(w, http.StatusBadRequest, "name cannot contain '__' (reserved for tool canonicalization)")
+		return req, false
+	}
+	if req.Command != "" && req.URL != "" {
+		writeError(w, http.StatusBadRequest, "cannot set both command and url")
+		return req, false
+	}
+	if req.Command == "" && req.URL == "" {
+		writeError(w, http.StatusBadRequest, "must set command or url")
+		return req, false
+	}
+	return req, true
 }
 
 // equalStrings compares two string slices for equality.
