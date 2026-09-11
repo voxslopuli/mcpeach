@@ -85,3 +85,12 @@ func TestDefaultSingleton(t *testing.T) {
 	}
 	t.Fatalf("line logged via one Default() not visible via another; lines = %v", b.Lines())
 }
+
+func TestResetDefaultForTest(t *testing.T) {
+	first := Default()
+	ResetDefaultForTest()
+	second := Default()
+	if first == second {
+		t.Error("ResetDefaultForTest did not reset the singleton")
+	}
+}
