@@ -76,6 +76,23 @@ func (m *Model) renderDetail(b *strings.Builder) {
 	row("Configured", enabledLabel(d.Enabled))
 	row("Runtime", d.State)
 	row("MCP tools", fmt.Sprint(d.ToolCount))
+	if d.Process != nil {
+		b.WriteString(theme.Header.Render(padLabel("Process")) + "\n")
+		row("  PID", fmt.Sprint(d.Process.PID))
+		row("  CPU", fmt.Sprintf("%.1f%%", d.Process.CPUPercent))
+		row("  Memory", formatBytes(d.Process.RSSBytes))
+		if len(d.Process.Ports) > 0 {
+			row("  Ports", strings.Join(d.Process.Ports, ", "))
+		}
+	} else if d.State == "running" {
+		b.WriteString(theme.Header.Render(padLabel("Process")) + theme.Help.Render(" (remote or no local process)\n"))
+	}
+	if len(d.Tools) > 0 {
+		b.WriteString(theme.Header.Render(padLabel("MCP Tools")) + "\n")
+		for _, t := range d.Tools {
+			b.WriteString("  " + t + "\n")
+		}
+	}
 	for _, kv := range sortedEnv(d.Env) {
 		b.WriteString(theme.Header.Render(padLabel("Env "+kv[0])) + kv[1] + "\n")
 	}
@@ -84,6 +101,21 @@ func (m *Model) renderDetail(b *strings.Builder) {
 		return
 	}
 	b.WriteString("\n" + theme.Help.Render("e edit · d delete · esc back") + "\n")
+}
+
+// formatBytes renders a byte count human-readably.
+func formatBytes(n uint64) string {
+	const kb = 1024
+	switch {
+	case n >= kb*kb*kb:
+		return fmt.Sprintf("%.1f GiB", float64(n)/(kb*kb*kb))
+	case n >= kb*kb:
+		return fmt.Sprintf("%.1f MiB", float64(n)/(kb*kb))
+	case n >= kb:
+		return fmt.Sprintf("%.1f KiB", float64(n)/kb)
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }
 
 // enabledLabel renders the configured state.

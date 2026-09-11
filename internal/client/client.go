@@ -56,7 +56,8 @@ type AddServerRequest struct {
 
 // ServerDetail mirrors the control-plane GET /v0/servers/{name} response.
 // Env values are source references (e.g. "keychain:...", "env:..."), never
-// resolved secrets.
+// resolved secrets. Process holds live resource usage, or nil when the server
+// is stopped or remote.
 type ServerDetail struct {
 	Name      string            `json:"name"`
 	State     string            `json:"state"`
@@ -67,6 +68,16 @@ type ServerDetail struct {
 	Enabled   bool              `json:"enabled"`
 	Env       map[string]string `json:"env,omitempty"`
 	ToolCount int               `json:"tool_count"`
+	Tools     []string          `json:"tools,omitempty"`
+	Process   *ProcessInfo      `json:"process,omitempty"`
+}
+
+// ProcessInfo mirrors the process resource usage reported by the daemon.
+type ProcessInfo struct {
+	PID        int32    `json:"pid"`
+	CPUPercent float64  `json:"cpu_percent"`
+	RSSBytes   uint64   `json:"rss_bytes"`
+	Ports      []string `json:"ports"`
 }
 
 // ListServers returns the configured servers.
