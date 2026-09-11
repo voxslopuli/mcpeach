@@ -3,10 +3,12 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/control"
@@ -180,5 +182,34 @@ func TestNewUnix(t *testing.T) {
 	}
 	if servers == nil {
 		t.Fatal("ListServers returned nil")
+	}
+}
+
+func TestNewUnixContextCancelled(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "mcpeach.sock")
+	c := NewUnix(sock)
+
+	// Cancel before dialing: the connect phase must honor the request context
+	// and fail immediately rather than hanging.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.ListServers(ctx)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("ListServers with cancelled context: want error, got nil")
+		}
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ListServers with cancelled context hung")
 	}
 }
