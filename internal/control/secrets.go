@@ -2,9 +2,12 @@ package control
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
+
+	"github.com/mcpeach/mcpeach/internal/config"
 )
 
 // SecretSource describes one environment variable source for a server. The
@@ -83,14 +86,17 @@ func (h *Handler) storeSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Update the config to reference the keychain entry so the server uses it.
-	// If persistence fails, remove the just-written keychain entry so we do not
-	// leave an orphan behind.
+	// The server config (including its Env map) is deep-copied so we never
+	// mutate the live published snapshot; only the atomic swap publishes it.
+	// If persistence fails, remove the just-written keychain entry so we do
+	// not leave an orphan behind.
 	h.mu.Lock()
 	cfg := h.cfg.Load()
 	if cfg != nil {
 		candidate := *cfg
 		candidate.Servers = copyServers(cfg.Servers)
 		if sc, ok := candidate.Servers[server]; ok {
+			sc = copyServerConfig(sc)
 			if sc.Env == nil {
 				sc.Env = map[string]string{}
 			}
@@ -118,14 +124,23 @@ func (h *Handler) deleteSecret(w http.ResponseWriter, r *http.Request) {
 
 	h.mu.Lock()
 	cfg := h.cfg.Load()
-	if cfg != nil {
-		candidate := *cfg
-		candidate.Servers = copyServers(cfg.Servers)
-		if sc, ok := candidate.Servers[server]; ok {
-			delete(sc.Env, variable)
-			candidate.Servers[server] = sc
-			h.publishCandidate(w, &candidate)
-		}
+	if cfg == nil {
+		h.mu.Unlock()
+		writeError(w, http.StatusInternalServerError, "config not available")
+		return
+	}
+	if _, ok := cfg.Servers[server]; !ok {
+		h.mu.Unlock()
+		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown server %q", server))
+		return
+	}
+	candidate := *cfg
+	candidate.Servers = copyServers(cfg.Servers)
+	if sc, ok := candidate.Servers[server]; ok {
+		sc = copyServerConfig(sc)
+		delete(sc.Env, variable)
+		candidate.Servers[server] = sc
+		h.publishCandidate(w, &candidate)
 	}
 	h.mu.Unlock()
 
@@ -134,6 +149,20 @@ func (h *Handler) deleteSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+}
+
+// copyServerConfig deep-copies a server config so mutating its Env map never
+// touches the live published snapshot.
+func copyServerConfig(sc config.ServerConfig) config.ServerConfig {
+	out := sc
+	if sc.Env != nil {
+		env := make(map[string]string, len(sc.Env))
+		for k, v := range sc.Env {
+			env[k] = v
+		}
+		out.Env = env
+	}
+	return out
 }
 
 // isKeychainNotFound reports whether a keychain error means the entry is absent.

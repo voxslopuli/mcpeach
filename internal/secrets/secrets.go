@@ -122,10 +122,7 @@ func (r *Resolver) Resolve(val string) (string, error) {
 // Store stores a secret in the keychain under "service/user". ref may be a
 // bare "service/user" or a full "keychain:service/user" reference.
 func (r *Resolver) Store(ref string, secret string) error {
-	if r.store == nil {
-		return errors.New("keychain store not available")
-	}
-	service, user, err := splitKeychainRef(strings.TrimPrefix(ref, "keychain:"))
+	service, user, err := r.keychainParts(ref)
 	if err != nil {
 		return err
 	}
@@ -134,14 +131,20 @@ func (r *Resolver) Store(ref string, secret string) error {
 
 // Delete removes a secret from the keychain under "service/user".
 func (r *Resolver) Delete(ref string) error {
-	if r.store == nil {
-		return errors.New("keychain store not available")
-	}
-	service, user, err := splitKeychainRef(strings.TrimPrefix(ref, "keychain:"))
+	service, user, err := r.keychainParts(ref)
 	if err != nil {
 		return err
 	}
 	return r.store.Delete(service, user)
+}
+
+// keychainParts validates that a keychain store is available and splits a
+// "service/user" (or "keychain:service/user") reference into its parts.
+func (r *Resolver) keychainParts(ref string) (service, user string, err error) {
+	if r.store == nil {
+		return "", "", errors.New("keychain store not available")
+	}
+	return splitKeychainRef(strings.TrimPrefix(ref, "keychain:"))
 }
 
 // ResolveEnv resolves a map of environment variables into a []string of

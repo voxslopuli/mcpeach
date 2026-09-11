@@ -145,3 +145,12 @@ func TestDeleteSecret(t *testing.T) {
 }
 
 var _ = context.Background // keep context import
+
+func TestDeleteSecretUnknownServer(t *testing.T) {
+	h, _ := newSecretsHandler(t)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/v0/secrets/nope/TOKEN", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
