@@ -143,7 +143,8 @@ func TestImportNilServersMap(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"mcpServers": {"a": {"command": "echo"}}}`), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	cfg := &config.Config{} // Servers is nil
+	cfg := config.Default()
+	cfg.Servers = nil // Servers is nil
 	if _, err := Import(path, cfg); err != nil {
 		t.Fatalf("Import: %v", err)
 	}
@@ -225,6 +226,51 @@ func TestExportNilConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("Export with nil config wrote a file: %v", err)
+	}
+}
+
+func TestImportConflictsSorted(t *testing.T) {
+	// Two conflicting servers: the conflict slice must be sorted regardless of
+	// map iteration order.
+	raw := `{"mcpServers": {"b": {"command": "new"}, "a": {"command": "new"}}}`
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg := config.Default()
+	cfg.Servers["b"] = config.ServerConfig{Command: "old", Enabled: true}
+	cfg.Servers["a"] = config.ServerConfig{Command: "old", Enabled: true}
+	conflicts, err := Import(path, cfg)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if len(conflicts) != 2 || conflicts[0] != "a" || conflicts[1] != "b" {
+		t.Errorf("conflicts = %v, want [a b] (sorted)", conflicts)
+	}
+}
+
+func TestImportInvalidEntryRejected(t *testing.T) {
+	// A server with neither command nor url is invalid; the import must fail
+	// and leave the live config untouched.
+	raw := `{"mcpServers": {"bad": {"env": {"K": "v"}}}}`
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg := config.Default()
+	cfg.Servers["keep"] = config.ServerConfig{Command: "echo", Enabled: true}
+	if _, err := Import(path, cfg); err == nil {
+		t.Fatal("Import malformed server: want error, got nil")
+	}
+	// The live config is unchanged: the malformed server was not published and
+	// existing servers were not touched.
+	if _, ok := cfg.Servers["bad"]; ok {
+		t.Error("malformed server was published to the live config")
+	}
+	if got := cfg.Servers["keep"].Command; got != "echo" {
+		t.Errorf("keep command = %q, want echo (live config mutated)", got)
 	}
 }
 

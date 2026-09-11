@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/mcpeach/mcpeach/internal/config"
 )
@@ -26,13 +27,13 @@ type claudeDoc struct {
 
 // Import reads a Claude Code MCP config JSON file and merges its servers into
 // cfg, preserving existing servers. Servers whose names already exist in cfg
-// are overwritten; the returned slice names each overwritten server.
+// are overwritten; the returned slice names each overwritten server, sorted.
+// The merge is transactional: the imported servers are validated against a
+// candidate copy first, so a malformed import returns an error and leaves the
+// live config untouched.
 func Import(path string, cfg *config.Config) ([]string, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
-	}
-	if cfg.Servers == nil {
-		cfg.Servers = make(map[string]config.ServerConfig)
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -42,9 +43,17 @@ func Import(path string, cfg *config.Config) ([]string, error) {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
+	// Build a candidate copy so a failed validation leaves the live config
+	// untouched. The explicit map rebuild keeps mutating candidate.Servers
+	// from affecting cfg.Servers.
+	candidate := *cfg
+	candidate.Servers = make(map[string]config.ServerConfig, len(cfg.Servers)+len(doc.MCPServers))
+	for name, sc := range cfg.Servers {
+		candidate.Servers[name] = sc
+	}
 	var conflicts []string
 	for name, cs := range doc.MCPServers {
-		if _, exists := cfg.Servers[name]; exists {
+		if _, exists := candidate.Servers[name]; exists {
 			conflicts = append(conflicts, name)
 		}
 		sc := config.ServerConfig{
@@ -64,8 +73,15 @@ func Import(path string, cfg *config.Config) ([]string, error) {
 				sc.Transport = "streamable-http"
 			}
 		}
-		cfg.Servers[name] = sc
+		candidate.Servers[name] = sc
 	}
+	// Validate the merged candidate before publishing, so a malformed import
+	// cannot leave the live config invalid.
+	if err := candidate.Validate(); err != nil {
+		return nil, err
+	}
+	sort.Strings(conflicts)
+	cfg.Servers = candidate.Servers
 	return conflicts, nil
 }
 
