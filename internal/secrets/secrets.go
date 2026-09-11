@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/zalando/go-keyring"
@@ -105,17 +106,46 @@ func (r *Resolver) Store(ref string, secret string) error {
 }
 
 // ResolveEnv resolves a map of environment variables into a []string of
-// "KEY=value" entries, resolving each value through the secret chain.
+// "KEY=value" entries, resolving each value through the secret chain. Keys are
+// returned in sorted order for determinism, and each key is validated so a
+// malformed key (empty, containing '=', NUL, or non-printable ASCII) cannot be
+// silently dropped or mangled by the subprocess environment.
 func (r *Resolver) ResolveEnv(env map[string]string) ([]string, error) {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 	out := make([]string, 0, len(env))
-	for k, v := range env {
-		resolved, err := r.Resolve(v)
+	for _, k := range keys {
+		if err := validateEnvKey(k); err != nil {
+			return nil, err
+		}
+		resolved, err := r.Resolve(env[k])
 		if err != nil {
 			return nil, fmt.Errorf("env %s: %w", k, err)
 		}
 		out = append(out, k+"="+resolved)
 	}
 	return out, nil
+}
+
+// validateEnvKey rejects keys that would be dropped or mangled by the
+// subprocess environment: empty, containing '=', containing NUL, or outside
+// printable ASCII.
+func validateEnvKey(k string) error {
+	if k == "" {
+		return errors.New("env key is empty")
+	}
+	if strings.ContainsAny(k, "=\x00") {
+		return fmt.Errorf("env key %q contains '=' or NUL", k)
+	}
+	for i := 0; i < len(k); i++ {
+		if k[i] < 0x20 || k[i] > 0x7e {
+			return fmt.Errorf("env key %q contains non-printable ASCII", k)
+		}
+	}
+	return nil
 }
 
 // MergeEnv merges the resolved configured environment over the process

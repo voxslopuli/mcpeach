@@ -87,6 +87,39 @@ func TestResolveEnvMapError(t *testing.T) {
 	}
 }
 
+func TestResolveEnvDeterministic(t *testing.T) {
+	r := NewResolver(nil)
+	env := map[string]string{"Z": "1", "A": "2", "M": "3"}
+	got, err := r.ResolveEnv(env)
+	if err != nil {
+		t.Fatalf("ResolveEnv: %v", err)
+	}
+	want := []string{"A=2", "M=3", "Z=1"}
+	if len(got) != len(want) {
+		t.Fatalf("ResolveEnv = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("ResolveEnv[%d] = %q, want %q (sorted)", i, got[i], want[i])
+		}
+	}
+}
+
+func TestResolveEnvRejectsInvalidKey(t *testing.T) {
+	r := NewResolver(nil)
+	tests := []map[string]string{
+		{"": "v"},           // empty key
+		{"BAD=KEY": "v"},    // contains '='
+		{"BAD\x00KEY": "v"}, // contains NUL
+		{"BAD\x7fKEY": "v"}, // non-printable ASCII (DEL)
+	}
+	for _, env := range tests {
+		if _, err := r.ResolveEnv(env); err == nil {
+			t.Errorf("ResolveEnv(%v): want error, got nil", env)
+		}
+	}
+}
+
 func TestResolveKeychain(t *testing.T) {
 	store := &fakeStore{values: map[string]string{"mcpeach/github": "ksecret"}}
 	r := NewResolver(store)
