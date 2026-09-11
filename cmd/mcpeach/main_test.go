@@ -355,9 +355,12 @@ func TestRunDaemonRemoteConnectFail(t *testing.T) {
 // goroutine, returning a cancel func and the daemon's error channel.
 func bootDaemon(t *testing.T, cfg *config.Config) (context.CancelFunc, chan error) {
 	t.Helper()
-	// short XDG dir for the unix socket path limit
-	dir := filepath.Join(os.TempDir(), "mcpeach-daemon-test")
-	_ = os.RemoveAll(dir)
+	// Short XDG dir for the unix socket path limit; MkdirTemp keeps the name
+	// unique so parallel test runs cannot collide on the same path.
+	dir, err := os.MkdirTemp(os.TempDir(), "mcpeach-daemon-test")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("XDG_RUNTIME_DIR", dir)
