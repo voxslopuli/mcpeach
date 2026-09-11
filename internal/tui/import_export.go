@@ -69,15 +69,12 @@ func (m *Model) executeImportExport(path string, mode importExportMode) tea.Msg 
 		return importExportMsg{mode: mode, err: errors.New("not connected to daemon")}
 	}
 	ctx := context.Background()
-	switch mode {
-	case ieImport:
-		// Safe defaults: review conflicts, migrate likely secrets to keychain.
-		res, err := m.client.Import(ctx, path, "review", "keychain")
-		return importExportMsg{mode: mode, path: path, res: res, err: err}
-	case ieExport:
+	if mode == ieExport {
 		// Safe default: preserve references, never resolve plaintext.
 		err := m.client.Export(ctx, path, "references", false)
 		return importExportMsg{mode: mode, path: path, err: err}
 	}
-	return importExportMsg{mode: mode, path: path}
+	// ieImport: review conflicts, migrate likely secrets to keychain.
+	res, err := m.client.Import(ctx, path, "review", "keychain")
+	return importExportMsg{mode: mode, path: path, res: res, err: err}
 }
