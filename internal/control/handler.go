@@ -117,6 +117,13 @@ func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) *H
 	return h
 }
 
+// SetSecretStore swaps the handler's keychain store. Used by tests to inject
+// an in-memory store; production never calls it (the default is the OS
+// keychain).
+func (h *Handler) SetSecretStore(s secrets.Store) {
+	h.res.SetStore(s)
+}
+
 func (h *Handler) listServers(w http.ResponseWriter, r *http.Request) {
 	// Report the actual operational state from the manager where known.
 	resp := ListServersResponse{Servers: []ServerInfo{}}
