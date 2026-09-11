@@ -342,6 +342,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.runAddServerForm()
 			}
 		case uv.KeyEscape, 'q':
+			// The form owns text input: esc cancels it, but 'q' must be inert so
+			// typing a value containing 'q' does not quit the TUI.
+			if m.view == viewForm {
+				if msg.Code == uv.KeyEscape {
+					m.view = viewList
+					return m, nil
+				}
+				return m, nil
+			}
 			// From a sub-view, esc/q returns to the list; from the list it quits.
 			if m.view != viewList {
 				m.view = viewList
@@ -399,6 +408,9 @@ func (m *Model) View() tea.View {
 		b.WriteString(theme.renderServerRow(s.Name, s.State, i == m.selected) + "\n")
 	}
 	m.renderError(&b, theme)
+	if m.status != "" {
+		b.WriteString("\n" + theme.Help.Render(m.status) + "\n")
+	}
 	b.WriteString("\n" + theme.Help.Render("↑/↓ select · space start/stop · enter manage · n new · l logs · t tools · q quit"))
 	return tea.NewView(b.String())
 }

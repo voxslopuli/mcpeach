@@ -596,3 +596,24 @@ func TestLoadCommandsSurfaceErrors(t *testing.T) {
 		t.Errorf("loadToolsCmd err = %v, want boom", msg.(toolsLoadedMsg).err)
 	}
 }
+
+func TestQInertInFormView(t *testing.T) {
+	fc := &fakeClient{}
+	m := NewModel(fc)
+	m.view = viewForm
+
+	// 'q' must not quit or navigate while the form owns text input.
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'q'})
+	if cmd != nil {
+		t.Error("'q' in form view: want nil cmd")
+	}
+	if updated.(*Model).view != viewForm {
+		t.Errorf("view = %v, want viewForm ('q' must be inert in form)", updated.(*Model).view)
+	}
+
+	// esc still cancels the form.
+	m.Update(tea.KeyPressMsg{Code: uv.KeyEscape})
+	if m.view != viewList {
+		t.Errorf("view = %v, want viewList after esc in form", m.view)
+	}
+}
