@@ -44,6 +44,8 @@ func main() {
 }
 
 // newRootCommand builds the root CLI command with all subcommands attached.
+// Bare `mcpeach` launches the TUI; `mcpeach tui` stays as a compatibility
+// alias.
 func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "mcpeach",
@@ -52,6 +54,9 @@ func newRootCommand() *cobra.Command {
 single streamable-HTTP endpoint, permissions tools, and exposes curated
 tool groups to clients.`,
 		Version: version,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runTUI()
+		},
 	}
 	root.AddCommand(serveCmd(), tuiCmd(), importCmd(), exportCmd(), installCmd(), uninstallCmd(), statusCmd())
 	return root
@@ -191,18 +196,34 @@ func newStreamingServer(addr string, handler http.Handler) *http.Server {
 }
 
 // tuiCmd launches the Bubble Tea TUI over the control-plane unix socket.
+// Kept as a compatibility alias for the bare `mcpeach` launch.
 func tuiCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "tui",
-		Short: "Launch the mcpeach TUI",
+		Short: "Launch the mcpeach TUI (alias: run mcpeach with no arguments)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c := mcclient.NewUnix(config.SocketPath())
-			m := tui.NewModel(c)
-			p := tea.NewProgram(m)
-			_, err := p.Run()
-			return err
+			return runTUI()
 		},
 	}
+}
+
+// tuiRunner is the subset of the Bubble Tea program the TUI launch needs.
+type tuiRunner interface {
+	Run() (tea.Model, error)
+}
+
+// tuiProgramFactory builds the TUI program. Overridable in tests.
+var tuiProgramFactory = func(m *tui.Model) tuiRunner {
+	return tea.NewProgram(m)
+}
+
+// runTUI builds and runs the TUI program. Shared by the root command and the
+// `tui` alias.
+func runTUI() error {
+	c := mcclient.NewUnix(config.SocketPath())
+	m := tui.NewModel(c)
+	_, err := tuiProgramFactory(m).Run()
+	return err
 }
 
 // importCmd imports servers from a Claude Code MCP config JSON file.

@@ -15,12 +15,19 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/bubbletea/v2"
 	"github.com/mcpeach/mcpeach/internal/client"
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/service"
 	"github.com/mcpeach/mcpeach/internal/testutil"
+	"github.com/mcpeach/mcpeach/internal/tui"
 	"github.com/spf13/cobra"
 )
+
+// fakeTuiRunner satisfies tuiRunner without running a real TUI.
+type fakeTuiRunner struct{}
+
+func (fakeTuiRunner) Run() (tea.Model, error) { return nil, nil }
 
 func TestStatusString(t *testing.T) {
 	tests := []struct {
@@ -55,6 +62,33 @@ func TestTuiCmd(t *testing.T) {
 	}
 	if cmd.Use != "tui" {
 		t.Errorf("Use = %q, want tui", cmd.Use)
+	}
+}
+
+func TestRootCommandLaunchesTUI(t *testing.T) {
+	// Root command with no args must run the same TUI factory as tuiCmd.
+	var called int
+	orig := tuiProgramFactory
+	tuiProgramFactory = func(m *tui.Model) tuiRunner {
+		called++
+		return fakeTuiRunner{}
+	}
+	defer func() { tuiProgramFactory = orig }()
+
+	root := newRootCommand()
+	if err := root.RunE(root, nil); err != nil {
+		t.Fatalf("root RunE: %v", err)
+	}
+	if called != 1 {
+		t.Errorf("root RunE invoked TUI factory %d times, want 1", called)
+	}
+
+	// The tui subcommand uses the same factory.
+	if err := tuiCmd().RunE(tuiCmd(), nil); err != nil {
+		t.Fatalf("tui RunE: %v", err)
+	}
+	if called != 2 {
+		t.Errorf("tui RunE invoked TUI factory %d times total, want 2", called)
 	}
 }
 
@@ -764,10 +798,12 @@ func waitForProcessGone(pid int, timeout time.Duration) bool {
 
 func TestExecuteRoot(t *testing.T) {
 	// executeRoot wires SIGINT/SIGTERM cancellation into fang.Execute. With
-	// no subcommand it shows help and returns nil; the point is exercising
-	// the signal-wiring line in-process (the E2E SIGTERM test covers the
-	// actual signal path via a spawned binary).
+	// `--help` it prints help and returns nil without launching the TUI (the
+	// bare-command path now runs the TUI, which needs a TTY); the point is
+	// exercising the signal-wiring line in-process (the E2E SIGTERM test
+	// covers the actual signal path via a spawned binary).
 	root := newRootCommand()
+	root.SetArgs([]string{"--help"})
 	if err := executeRoot(root); err != nil {
 		t.Fatalf("executeRoot: %v", err)
 	}
