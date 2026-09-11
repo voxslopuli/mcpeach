@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/mcpeach/mcpeach/internal/client"
 )
 
@@ -74,45 +75,77 @@ func buildAddServerForm(f *addServerForm) *huh.Form {
 	)
 }
 
-// runAddServerForm returns a tea.Cmd that runs the huh form and submits the
-// result to the control plane.
+// runAddServerForm returns a tea.Cmd that opens the new-server form. The form
+// is integrated into the Bubble Tea model (not run blocking), so it shares the
+// terminal with the rest of the TUI.
 func (m *Model) runAddServerForm() tea.Cmd {
-	return func() tea.Msg {
-		if m.form == nil {
-			m.form = &addServerForm{enabled: true}
-		}
-		return m.runServerForm(m.form)
-	}
-}
-
-// runServerForm runs the interactive huh form and submits it. Shared by the
-// create and edit flows.
-func (m *Model) runServerForm(f *addServerForm) tea.Msg {
-	form := buildAddServerForm(f)
-	if err := form.Run(); err != nil {
-		return addServerDoneMsg{err: err}
-	}
-	return m.submitAddServer(f)()
+	m.form = &addServerForm{enabled: true}
+	m.huhForm = buildAddServerForm(m.form)
+	return m.huhForm.Init()
 }
 
 // runEditServerForm opens the shared form in edit mode for the named server,
 // prepopulating every field from its detail. Env values arrive as source
-// references, never resolved secrets.
+// references, never resolved secrets. The detail is fetched asynchronously so
+// the UI thread never blocks on the control plane.
 func (m *Model) runEditServerForm(name string) tea.Cmd {
+	if m.client == nil {
+		return func() tea.Msg { return addServerDoneMsg{err: errors.New("client unavailable")} }
+	}
 	return func() tea.Msg {
-		if m.client == nil {
-			return addServerDoneMsg{err: errors.New("client unavailable")}
-		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		d, err := m.client.GetServer(ctx, name)
 		if err != nil {
 			return addServerDoneMsg{err: err}
 		}
-		f := editFormFromDetail(&d, name)
-		m.form = f
-		return m.runServerForm(f)
+		return editDetailLoadedMsg{name: name, detail: &d}
 	}
+}
+
+// editDetailLoadedMsg carries the server detail fetched for the edit form.
+type editDetailLoadedMsg struct {
+	name   string
+	detail *client.ServerDetail
+}
+
+// updateForm forwards a message to the active huh form and, when the form
+// completes, submits the collected values and returns to the list. Esc aborts
+// the form and returns to the list without submitting.
+func (m *Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.huhForm == nil {
+		m.view = viewList
+		return m, nil
+	}
+	// Esc aborts the form and returns to the list.
+	if kp, ok := msg.(tea.KeyPressMsg); ok && kp.Code == uv.KeyEscape {
+		m.view = viewList
+		m.huhForm = nil
+		return m, nil
+	}
+	// If the form is already completed/aborted, submit without re-updating.
+	if m.huhForm.State != huh.StateNormal {
+		return m.finishForm()
+	}
+	updated, cmd := m.huhForm.Update(msg)
+	m.huhForm = updated.(*huh.Form)
+	if m.huhForm.State != huh.StateNormal {
+		// The form completed (submitted or aborted). Submit the values.
+		return m.finishForm()
+	}
+	return m, cmd
+}
+
+// finishForm handles a completed/aborted form: returns to the list and, if the
+// form was completed, submits the collected values.
+func (m *Model) finishForm() (tea.Model, tea.Cmd) {
+	completed := m.huhForm.State == huh.StateCompleted
+	m.view = viewList
+	m.huhForm = nil
+	if completed {
+		return m, m.submitAddServer(m.form)
+	}
+	return m, nil
 }
 
 // editFormFromDetail builds a prefilled edit-mode form from a server detail.

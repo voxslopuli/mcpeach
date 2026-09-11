@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/zalando/go-keyring"
 )
@@ -45,6 +46,54 @@ func (k *KeyringStore) Set(service, user, secret string) error {
 // Delete removes a secret from the OS keychain.
 func (k *KeyringStore) Delete(service, user string) error {
 	return keyring.Delete(service, user)
+}
+
+// MemoryStore is an in-memory Store used for tests and the E2E suite (so no
+// test touches the real OS keychain). It is safe for concurrent use.
+type MemoryStore struct {
+	mu     sync.Mutex
+	values map[string]string
+}
+
+// NewMemoryStore returns an empty in-memory Store.
+func NewMemoryStore() *MemoryStore {
+	return &MemoryStore{values: map[string]string{}}
+}
+
+// Get fetches a secret from the in-memory map.
+func (m *MemoryStore) Get(service, user string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if v, ok := m.values[service+"/"+user]; ok {
+		return v, nil
+	}
+	return "", ErrNotFound
+}
+
+// Set stores a secret in the in-memory map.
+func (m *MemoryStore) Set(service, user, secret string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.values[service+"/"+user] = secret
+	return nil
+}
+
+// Delete removes a secret from the in-memory map.
+func (m *MemoryStore) Delete(service, user string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.values, service+"/"+user)
+	return nil
+}
+
+// NewStoreFromEnv returns a Store selected by the MCPEACH_KEYCHAIN_STORE env
+// var: "memory" uses an in-memory store (for tests/E2E), anything else uses
+// the OS keychain.
+func NewStoreFromEnv() Store {
+	if os.Getenv("MCPEACH_KEYCHAIN_STORE") == "memory" {
+		return NewMemoryStore()
+	}
+	return NewKeyringStore()
 }
 
 // Resolver resolves secret references against the environment and keychain.

@@ -291,3 +291,34 @@ func TestResolverDelete(t *testing.T) {
 		t.Error("entry still present after Delete")
 	}
 }
+
+func TestMemoryStore(t *testing.T) {
+	ms := NewMemoryStore()
+	if _, err := ms.Get("s", "u"); err != ErrNotFound {
+		t.Errorf("Get missing = %v, want ErrNotFound", err)
+	}
+	if err := ms.Set("s", "u", "v"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ms.Get("s", "u")
+	if err != nil || got != "v" {
+		t.Errorf("Get = %q, %v", got, err)
+	}
+	if err := ms.Delete("s", "u"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ms.Get("s", "u"); err != ErrNotFound {
+		t.Errorf("Get after delete = %v, want ErrNotFound", err)
+	}
+}
+
+func TestNewStoreFromEnv(t *testing.T) {
+	t.Setenv("MCPEACH_KEYCHAIN_STORE", "memory")
+	if _, ok := NewStoreFromEnv().(*MemoryStore); !ok {
+		t.Error("expected MemoryStore when MCPEACH_KEYCHAIN_STORE=memory")
+	}
+	t.Setenv("MCPEACH_KEYCHAIN_STORE", "")
+	if _, ok := NewStoreFromEnv().(*KeyringStore); !ok {
+		t.Error("expected KeyringStore by default")
+	}
+}

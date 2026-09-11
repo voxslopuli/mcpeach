@@ -105,7 +105,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // NewHandler builds a control-plane handler. The config is saved to
 // config.Path() when servers are added.
 func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) *Handler {
-	h := &Handler{mgr: mgr, gw: gw, configPath: config.Path(), log: obs.Default().With("pkg", "control"), res: secrets.NewResolver(secrets.NewKeyringStore())}
+	h := &Handler{mgr: mgr, gw: gw, configPath: config.Path(), log: obs.Default().With("pkg", "control"), res: secrets.NewResolver(secrets.NewStoreFromEnv())}
 	h.cfg.Store(cfg)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v0/servers", h.listServers)
