@@ -20,13 +20,18 @@ type Daemon struct {
 	cmd  *exec.Cmd
 }
 
+// ensureXDGDirs creates the isolated XDG config/runtime dirs for a root.
+func ensureXDGDirs(root string) {
+	_ = os.MkdirAll(filepath.Join(root, "runtime", "mcpeach"), 0o700)
+	_ = os.MkdirAll(filepath.Join(root, "config", "mcpeach"), 0o700)
+}
+
 // StartDaemon launches `mcpeach serve` with an isolated XDG environment and
 // waits for the control socket to become connectable.
 func StartDaemon(t *testing.T, bin, root string, env []string) *Daemon {
 	t.Helper()
 	d := &Daemon{t: t, bin: bin, root: root}
-	_ = os.MkdirAll(filepath.Join(root, "runtime", "mcpeach"), 0o700)
-	_ = os.MkdirAll(filepath.Join(root, "config", "mcpeach"), 0o700)
+	ensureXDGDirs(root)
 
 	logDir := filepath.Join(root, "logs")
 	_ = os.MkdirAll(logDir, 0o755)
@@ -75,8 +80,7 @@ func StartDaemon(t *testing.T, bin, root string, env []string) *Daemon {
 // the daemon to exit (e.g. when an enabled server fails to connect).
 func RunDaemonExpectError(t *testing.T, bin, root string, env []string) error {
 	t.Helper()
-	_ = os.MkdirAll(filepath.Join(root, "runtime", "mcpeach"), 0o700)
-	_ = os.MkdirAll(filepath.Join(root, "config", "mcpeach"), 0o700)
+	ensureXDGDirs(root)
 	cmd := exec.Command(bin, "serve") // nosemgrep go_subproc_rule-subproc,go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.CombinedOutput()
