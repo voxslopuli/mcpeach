@@ -1124,3 +1124,105 @@ func TestStartServerUnknownToManager(t *testing.T) {
 		t.Fatalf("status = %d, want 500 (unknown to manager)", rec.Code)
 	}
 }
+func TestGetServerDetail(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"github": {
+				Command:   "npx",
+				Args:      []string{"-y", "@modelcontextprotocol/server-github"},
+				Env:       map[string]string{"GITHUB_PERSONAL_ACCESS_TOKEN": "keychain:mcpeach/github/TOKEN"},
+				Enabled:   true,
+				Transport: "",
+			},
+		},
+	}
+	mgr := server.NewManager()
+	mgr.Add(server.New("github"))
+	gw := gateway.New(cfg)
+	// Register two tools for the server so the tool count is 2.
+	gw.RegisterTool("github", mcp.NewTool("tool1"))
+	gw.RegisterTool("github", mcp.NewTool("tool2"))
+	h := NewHandler(mgr, gw, cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/v0/servers/github", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	var resp ServerDetail
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Name != "github" {
+		t.Errorf("name = %q, want github", resp.Name)
+	}
+	if resp.State != "stopped" {
+		t.Errorf("state = %q, want stopped", resp.State)
+	}
+	if resp.Transport != "stdio" {
+		t.Errorf("transport = %q, want stdio (derived from command)", resp.Transport)
+	}
+	if resp.Command != "npx" {
+		t.Errorf("command = %q, want npx", resp.Command)
+	}
+	if len(resp.Args) != 2 || resp.Args[0] != "-y" {
+		t.Errorf("args = %v, want [-y @modelcontextprotocol/server-github]", resp.Args)
+	}
+	if !resp.Enabled {
+		t.Error("enabled = false, want true")
+	}
+	if resp.ToolCount != 2 {
+		t.Errorf("toolCount = %d, want 2", resp.ToolCount)
+	}
+	// Env values must be the SOURCE REFERENCES from config, never resolved.
+	if resp.Env["GITHUB_PERSONAL_ACCESS_TOKEN"] != "keychain:mcpeach/github/TOKEN" {
+		t.Errorf("env = %v, want source reference keychain:mcpeach/github/TOKEN", resp.Env)
+	}
+}
+
+func TestGetServerDetailRemote(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"remote": {URL: "https://mcp.example.com/mcp", Transport: "streamable-http", Enabled: true},
+		},
+	}
+	h := newHandlerWithConfig(t, cfg)
+	req := httptest.NewRequest(http.MethodGet, "/v0/servers/remote", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	var resp ServerDetail
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Transport != "streamable-http" {
+		t.Errorf("transport = %q, want streamable-http", resp.Transport)
+	}
+	if resp.URL != "https://mcp.example.com/mcp" {
+		t.Errorf("url = %q, want https://mcp.example.com/mcp", resp.URL)
+	}
+}
+
+func TestGetServerDetailUnknown(t *testing.T) {
+	h := newTestHandler(t)
+	req := httptest.NewRequest(http.MethodGet, "/v0/servers/nope", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestGetServerDetailNilConfig(t *testing.T) {
+	h := NewHandler(server.NewManager(), gateway.New(&config.Config{}), nil)
+	req := httptest.NewRequest(http.MethodGet, "/v0/servers/a", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (nil config)", rec.Code)
+	}
+}

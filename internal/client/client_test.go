@@ -225,3 +225,49 @@ func TestNewUnixContextCancelled(t *testing.T) {
 		t.Fatal("ListServers with cancelled context hung")
 	}
 }
+
+func TestGetServerDetail(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"github": {
+				Command: "npx",
+				Args:    []string{"-y", "@modelcontextprotocol/server-github"},
+				Env:     map[string]string{"TOKEN": "env:GITHUB_TOKEN"},
+				Enabled: true,
+			},
+		},
+	}
+	mgr := server.NewManager()
+	mgr.Add(server.New("github"))
+	h := control.NewHandler(mgr, gateway.New(cfg), cfg)
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := New(srv.URL)
+
+	d, err := c.GetServer(context.Background(), "github")
+	if err != nil {
+		t.Fatalf("GetServer: %v", err)
+	}
+	if d.Name != "github" {
+		t.Errorf("name = %q, want github", d.Name)
+	}
+	if d.Command != "npx" {
+		t.Errorf("command = %q, want npx", d.Command)
+	}
+	if len(d.Args) != 2 || d.Args[1] != "@modelcontextprotocol/server-github" {
+		t.Errorf("args = %v, want round-tripped args", d.Args)
+	}
+	if d.Env["TOKEN"] != "env:GITHUB_TOKEN" {
+		t.Errorf("env = %v, want source reference env:GITHUB_TOKEN", d.Env)
+	}
+	if d.Enabled != true {
+		t.Error("enabled = false, want true")
+	}
+}
+
+func TestGetServerDetailUnknown(t *testing.T) {
+	c := newTestClient(t)
+	if _, err := c.GetServer(context.Background(), "nope"); err == nil {
+		t.Fatal("GetServer unknown: want error, got nil")
+	}
+}

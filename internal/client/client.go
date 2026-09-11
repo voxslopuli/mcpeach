@@ -53,6 +53,21 @@ type AddServerRequest struct {
 	Transport string            `json:"transport,omitempty"`
 }
 
+// ServerDetail mirrors the control-plane GET /v0/servers/{name} response.
+// Env values are source references (e.g. "keychain:...", "env:..."), never
+// resolved secrets.
+type ServerDetail struct {
+	Name      string            `json:"name"`
+	State     string            `json:"state"`
+	Transport string            `json:"transport,omitempty"`
+	Command   string            `json:"command,omitempty"`
+	Args      []string          `json:"args,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Enabled   bool              `json:"enabled"`
+	Env       map[string]string `json:"env,omitempty"`
+	ToolCount int               `json:"tool_count"`
+}
+
 // ListServers returns the configured servers.
 func (c *Client) ListServers(ctx context.Context) ([]ServerInfo, error) {
 	var resp struct {
@@ -62,6 +77,15 @@ func (c *Client) ListServers(ctx context.Context) ([]ServerInfo, error) {
 		return nil, err
 	}
 	return resp.Servers, nil
+}
+
+// GetServer returns the full detail for one server.
+func (c *Client) GetServer(ctx context.Context, name string) (ServerDetail, error) {
+	var d ServerDetail
+	if err := c.do(ctx, http.MethodGet, "/v0/servers/"+url.PathEscape(name), nil, &d); err != nil {
+		return ServerDetail{}, err
+	}
+	return d, nil
 }
 
 // ListTools returns the aggregated tool names.
