@@ -81,12 +81,18 @@ func (m *Model) runAddServerForm() tea.Cmd {
 		if m.form == nil {
 			m.form = &addServerForm{enabled: true}
 		}
-		form := buildAddServerForm(m.form)
-		if err := form.Run(); err != nil {
-			return addServerDoneMsg{err: err}
-		}
-		return m.submitAddServer(m.form)()
+		return m.runServerForm(m.form)
 	}
+}
+
+// runServerForm runs the interactive huh form and submits it. Shared by the
+// create and edit flows.
+func (m *Model) runServerForm(f *addServerForm) tea.Msg {
+	form := buildAddServerForm(f)
+	if err := form.Run(); err != nil {
+		return addServerDoneMsg{err: err}
+	}
+	return m.submitAddServer(f)()
 }
 
 // runEditServerForm opens the shared form in edit mode for the named server,
@@ -105,11 +111,7 @@ func (m *Model) runEditServerForm(name string) tea.Cmd {
 		}
 		f := editFormFromDetail(&d, name)
 		m.form = f
-		form := buildAddServerForm(f)
-		if err := form.Run(); err != nil {
-			return addServerDoneMsg{err: err}
-		}
-		return m.submitAddServer(f)()
+		return m.runServerForm(f)
 	}
 }
 
