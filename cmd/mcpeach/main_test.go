@@ -3,13 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -619,10 +619,10 @@ func TestServeHandlesSIGTERM(t *testing.T) {
 	}
 
 	// The daemon connects to the stdio server before it binds the socket, so
-	// the fake-mcp child is running by now. Record its PID(s) to prove it is
+	// the fake-mcp child is running by now. Record its PID to prove it is
 	// reaped on shutdown.
-	children := waitForProcess(fakeBin, 5*time.Second)
-	if len(children) == 0 {
+	childPID := waitForChildPID(t, sock, "fake", 5*time.Second)
+	if childPID == 0 {
 		t.Fatalf("fake-mcp child never appeared\n%s", dump())
 	}
 
@@ -645,8 +645,8 @@ func TestServeHandlesSIGTERM(t *testing.T) {
 	}
 
 	// The stdio subprocess must be reaped (gw.Close closes the client).
-	if leftover := waitForProcessGone(fakeBin, 5*time.Second); len(leftover) > 0 {
-		t.Errorf("orphaned fake-mcp process(es) still running after shutdown: %v", leftover)
+	if !waitForProcessGone(childPID, 5*time.Second) {
+		t.Errorf("orphaned fake-mcp process %d still running after shutdown", childPID)
 	}
 }
 
@@ -678,48 +678,65 @@ func shortXDGDir(t *testing.T, name string) string {
 	return dir
 }
 
-// pgrepMatches returns the PIDs whose full command line matches pattern.
-// pgrep exits non-zero when nothing matches, which is reported as empty.
-func pgrepMatches(pattern string) []int {
-	out, err := exec.Command("pgrep", "-f", pattern).Output()
+// childPIDFromLogs fetches the fake-mcp child PID from the daemon's log ring
+// (fake-mcp emits its PID in the startup JSON line). Returns 0 if not found.
+func childPIDFromLogs(t *testing.T, sock, name string) int {
+	t.Helper()
+	c := client.NewUnix(sock)
+	lines, err := c.ServerLogs(context.Background(), name)
 	if err != nil {
-		return nil
+		return 0
 	}
-	var pids []int
-	for _, field := range strings.Fields(string(out)) {
-		if pid, err := strconv.Atoi(field); err == nil {
-			pids = append(pids, pid)
+	for _, line := range lines {
+		var entry struct {
+			PID int `json:"pid"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err == nil && entry.PID > 0 {
+			return entry.PID
 		}
 	}
-	return pids
+	return 0
 }
 
-// waitForProcess polls until at least one process matching pattern exists,
-// returning its PIDs, or nil on timeout.
-func waitForProcess(pattern string, timeout time.Duration) []int {
+// processAlive reports whether a process with the given PID exists, using a
+// portable signal-0 probe (no pgrep dependency).
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return p.Signal(syscall.Signal(0)) == nil
+}
+
+// waitForChildPID polls until the fake-mcp child PID appears in the daemon
+// logs, returning it, or 0 on timeout.
+func waitForChildPID(t *testing.T, sock, name string, timeout time.Duration) int {
+	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
-		if pids := pgrepMatches(pattern); len(pids) > 0 {
-			return pids
+		if pid := childPIDFromLogs(t, sock, name); pid > 0 {
+			return pid
 		}
 		if time.Now().After(deadline) {
-			return nil
+			return 0
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 }
 
-// waitForProcessGone polls until no process matches pattern, returning the
-// PIDs that were still alive when the deadline passed.
-func waitForProcessGone(pattern string, timeout time.Duration) []int {
+// waitForProcessGone polls until the process with pid no longer exists,
+// returning true when it is gone.
+func waitForProcessGone(pid int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for {
-		pids := pgrepMatches(pattern)
-		if len(pids) == 0 {
-			return nil
+		if !processAlive(pid) {
+			return true
 		}
 		if time.Now().After(deadline) {
-			return pids
+			return false
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

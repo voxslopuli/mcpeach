@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -60,7 +59,7 @@ tool groups to clients.`,
 // command context. Extracted from main so tests can exercise the signal
 // wiring without spawning a subprocess.
 func executeRoot(root *cobra.Command) error {
-	return fang.Execute(context.Background(), root, fang.WithNotifySignal(os.Interrupt, syscall.SIGTERM))
+	return fang.Execute(context.Background(), root, fang.WithNotifySignal(notifySignals...))
 }
 
 // serveCmd runs the mcpeach daemon: it loads config, wires the gateway and
