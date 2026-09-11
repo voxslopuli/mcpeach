@@ -5,6 +5,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -315,9 +316,17 @@ func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {
 	}
 	defer closeNew()
 
+	// Commit the lifecycle state before touching the gateway. On replacement
+	// the server is already running; tolerate that as a no-op so restarting a
+	// running server succeeds. Any other failure leaves the old client intact.
+	if err := h.mgr.MarkRunning(name); err != nil && !errors.Is(err, server.ErrInvalidTransition) {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if h.gw != nil {
 		// Atomically swap: remove the old client + old tools, then register the
-		// new client + new tools.
+		// new client + new tools. This runs only after MarkRunning succeeded,
+		// so a state failure cannot destroy a previously working client.
 		if old := h.gw.RemoveServer(name); old != nil {
 			if closer, ok := old.(interface{ Close() error }); ok {
 				_ = closer.Close()
@@ -326,14 +335,6 @@ func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {
 		h.gw.RegisterClient(name, caller)
 		for _, t := range tools {
 			h.gw.RegisterTool(name, t)
-		}
-	}
-	if h.mgr != nil {
-		// On replacement the server is already running; tolerate that as a
-		// no-op so restarting a running server succeeds.
-		if err := h.mgr.MarkRunning(name); err != nil && !strings.Contains(err.Error(), "invalid transition") {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
 		}
 	}
 	// The swap succeeded; the new client is now owned by the gateway.
@@ -362,18 +363,28 @@ func (h *Handler) stopServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "manager not available")
 		return
 	}
+	// A server the manager has never seen is not running: report the state
+	// conflict without touching the gateway.
+	if h.mgr.Server(name) == nil {
+		writeError(w, http.StatusConflict, fmt.Sprintf("server %q is not running", name))
+		return
+	}
+	// Commit the lifecycle state before destructive cleanup. If this fails
+	// (already stopped, or an unexpected error) the gateway stays intact.
+	if err := h.mgr.MarkStopped(name); err != nil {
+		if errors.Is(err, server.ErrNotRunning) || errors.Is(err, server.ErrInvalidTransition) {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if h.gw != nil {
 		// Atomically remove the client and its tools, then close the client.
 		if c := h.gw.RemoveServer(name); c != nil {
 			if closer, ok := c.(interface{ Close() error }); ok {
 				_ = closer.Close()
 			}
-		}
-	}
-	if h.mgr != nil {
-		if err := h.mgr.MarkStopped(name); err != nil && !strings.Contains(err.Error(), "not running") {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
 		}
 	}
 	if h.syncTools != nil {
