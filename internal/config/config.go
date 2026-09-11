@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/adrg/xdg"
 	"gopkg.in/yaml.v3"
@@ -186,6 +187,9 @@ func validateServer(name string, s ServerConfig) error {
 }
 
 func (c *Config) validateGroup(name string, g GroupConfig) error {
+	if err := validateGroupName(name); err != nil {
+		return err
+	}
 	for _, s := range g.IncludedServers {
 		if _, ok := c.Servers[s]; !ok {
 			return fmt.Errorf("group %q: included_server %q not found", name, s)
@@ -195,6 +199,30 @@ func (c *Config) validateGroup(name string, g GroupConfig) error {
 		return err
 	}
 	return c.validateToolList(name, g.ExcludedTools)
+}
+
+// maxGroupNameLen bounds group names, which are interpolated into route
+// paths like /v0/groups/{name}/mcp.
+const maxGroupNameLen = 64
+
+// validateGroupName rejects group names that are unsafe to interpolate into
+// route paths or that collide with reserved tool-canonicalization syntax.
+func validateGroupName(name string) error {
+	switch {
+	case name == "":
+		return fmt.Errorf("group %q: invalid name: must not be empty", name)
+	case len(name) > maxGroupNameLen:
+		return fmt.Errorf("group %q: invalid name: must be at most %d characters", name, maxGroupNameLen)
+	case name == "." || name == "..":
+		return fmt.Errorf("group %q: invalid name: must not be a path segment", name)
+	case strings.ContainsAny(name, `/\`):
+		return fmt.Errorf("group %q: invalid name: must not contain path separators", name)
+	case strings.IndexFunc(name, unicode.IsSpace) >= 0:
+		return fmt.Errorf("group %q: invalid name: must not contain whitespace", name)
+	case strings.Contains(name, "__"):
+		return fmt.Errorf("group %q: invalid name: must not contain '__' (reserved for tool canonicalization)", name)
+	}
+	return nil
 }
 
 // validateToolList checks that each canonical "<server>__<tool>" name

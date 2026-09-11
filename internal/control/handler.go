@@ -410,6 +410,14 @@ func (s *Server) Start(ctx context.Context) error {
 	if err := os.MkdirAll(filepath.Dir(s.sock), 0o700); err != nil {
 		return err
 	}
+	// Probe for a live daemon before touching the socket. A successful dial
+	// means another daemon is listening; refuse rather than unlinking its
+	// socket and hijacking the endpoint. A failed dial (ECONNREFUSED or no
+	// such file) means the socket is stale and safe to remove.
+	if conn, derr := net.Dial("unix", s.sock); derr == nil {
+		_ = conn.Close()
+		return fmt.Errorf("daemon already running on %s", s.sock)
+	}
 	// Remove a stale socket file if present.
 	_ = os.Remove(s.sock)
 	ln, err := net.Listen("unix", s.sock)

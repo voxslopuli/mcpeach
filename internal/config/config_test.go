@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -156,6 +157,9 @@ func TestValidate(t *testing.T) {
 			c.Servers["s"] = ServerConfig{Command: "x", Enabled: true}
 			c.Groups["g"] = GroupConfig{IncludedServers: []string{"s"}}
 		}, false},
+		{"group name with path separator", func(c *Config) {
+			c.Groups["a/b"] = GroupConfig{}
+		}, true},
 	}
 
 	for _, tt := range tests {
@@ -168,6 +172,39 @@ func TestValidate(t *testing.T) {
 			}
 			if !tt.wantErr && err != nil {
 				t.Errorf("Validate: want nil, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateGroupName(t *testing.T) {
+	tests := []struct {
+		name    string
+		group   string
+		wantErr bool
+	}{
+		{"simple", "github", false},
+		{"hyphen", "my-group", false},
+		{"alnum", "a1", false},
+		{"max length", strings.Repeat("a", maxGroupNameLen), false},
+		{"empty", "", true},
+		{"forward slash", "a/b", true},
+		{"backslash", `a\b`, true},
+		{"dotdot", "..", true},
+		{"dot", ".", true},
+		{"space", "a b", true},
+		{"tab", "a\tb", true},
+		{"double underscore", "a__b", true},
+		{"too long", strings.Repeat("a", maxGroupNameLen+1), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateGroupName(tt.group)
+			if tt.wantErr && err == nil {
+				t.Errorf("validateGroupName(%q) = nil, want error", tt.group)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("validateGroupName(%q) = %v, want nil", tt.group, err)
 			}
 		})
 	}
