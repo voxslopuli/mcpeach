@@ -1301,43 +1301,43 @@ func TestUpdateServerRename(t *testing.T) {
 }
 
 func TestUpdateServerRestartRequired(t *testing.T) {
-	h, mgr, _, _ := newFakeServerHandler(t)
-	// Mark the server running so runtime-affecting edits require a restart.
-	mgr.Add(server.New("fake"))
-	if err := mgr.MarkRunning("fake"); err != nil {
-		t.Fatalf("MarkRunning: %v", err)
+	tests := []struct {
+		name    string
+		req     AddServerRequest
+		wantMsg string
+	}{
+		{
+			name:    "runtime field change",
+			req:     AddServerRequest{Name: "fake", Command: "npx", Enabled: true},
+			wantMsg: "want true",
+		},
+		{
+			name:    "rename of running server",
+			req:     AddServerRequest{Name: "renamed", Command: "echo", Enabled: true},
+			wantMsg: "want true (rename of running server)",
+		},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, mgr, _, _ := newFakeServerHandler(t)
+			// Mark the server running so runtime-affecting edits require a restart.
+			mgr.Add(server.New("fake"))
+			if err := mgr.MarkRunning("fake"); err != nil {
+				t.Fatalf("MarkRunning: %v", err)
+			}
 
-	rec := putServer(t, h, "fake", AddServerRequest{Name: "fake", Command: "npx", Enabled: true})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp["restart_required"] != true {
-		t.Errorf("restart_required = %v, want true", resp["restart_required"])
-	}
-}
-
-func TestUpdateServerRenameRunningRestartRequired(t *testing.T) {
-	h, mgr, _, _ := newFakeServerHandler(t)
-	mgr.Add(server.New("fake"))
-	if err := mgr.MarkRunning("fake"); err != nil {
-		t.Fatalf("MarkRunning: %v", err)
-	}
-
-	rec := putServer(t, h, "fake", AddServerRequest{Name: "renamed", Command: "echo", Enabled: true})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp["restart_required"] != true {
-		t.Errorf("restart_required = %v, want true (rename of running server)", resp["restart_required"])
+			rec := putServer(t, h, "fake", tt.req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+			}
+			var resp map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if resp["restart_required"] != true {
+				t.Errorf("restart_required = %v, %s", resp["restart_required"], tt.wantMsg)
+			}
+		})
 	}
 }
 
