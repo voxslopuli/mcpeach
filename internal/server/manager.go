@@ -131,7 +131,7 @@ func (m *Manager) Stop(name string) error {
 	p, running := m.procs[name]
 	if !running {
 		m.mu.Unlock()
-		return fmt.Errorf("server %q is not running", name)
+		return fmt.Errorf("%w: %s", ErrNotRunning, name)
 	}
 	delete(m.procs, name)
 	m.mu.Unlock()

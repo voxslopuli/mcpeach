@@ -511,7 +511,7 @@ func TestStopServerRemovesTools(t *testing.T) {
 	}
 }
 
-func TestStartServerReplacementFailure(t *testing.T) {
+func TestStartServerFailurePreservesOldClient(t *testing.T) {
 	h, _, gw, cfg := newFakeServerHandler(t)
 
 	// Start a healthy server.
@@ -678,8 +678,49 @@ func TestStopNotRunning(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v0/servers/echo/stop", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500 (not running)", rec.Code)
+	// Stopping a stopped server is a state conflict, not a server fault.
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (not running)", rec.Code)
+	}
+}
+
+// stubCaller is a minimal gateway.ToolCaller for handler tests.
+type stubCaller struct{}
+
+func (stubCaller) CallTool(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return mcp.NewToolResultText("ok"), nil
+}
+
+// TestStopServerErrorLeavesGatewayIntact verifies that when the lifecycle
+// transition fails, the gateway client and tools are left untouched.
+func TestStopServerErrorLeavesGatewayIntact(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"fake": {Command: "echo", Enabled: true},
+		},
+	}
+	mgr := server.NewManager()
+	// Register the server in the Stopped state so MarkStopped fails with an
+	// invalid transition while a gateway client/tool is present.
+	mgr.Add(server.New("fake"))
+	gw := gateway.New(cfg)
+	gw.RegisterClient("fake", stubCaller{})
+	gw.RegisterTool("fake", mcp.Tool{Name: "echo"})
+	h := NewHandler(mgr, gw, cfg)
+
+	if len(gw.Tools()) != 1 {
+		t.Fatalf("precondition: tools = %d, want 1", len(gw.Tools()))
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/fake/stop", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (body %s)", rec.Code, rec.Body.String())
+	}
+	if len(gw.Tools()) != 1 {
+		t.Errorf("after failed stop Tools() = %d, want 1 (gateway state destroyed)", len(gw.Tools()))
 	}
 }
 
@@ -1010,5 +1051,24 @@ func TestConcurrentAddAndGatewayRead(t *testing.T) {
 	want := writers * perWriter
 	if len(live.Servers) != want {
 		t.Fatalf("live config has %d servers, want %d (lost updates)", len(live.Servers), want)
+	}
+}
+
+// TestStartServerUnknownToManager covers the MarkRunning non-transition error
+// path: a server present in config but absent from the manager yields a 500
+// (the manager reports "unknown server"), not a silent success.
+func TestStartServerUnknownToManager(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"ghost": {Command: "echo", Enabled: true},
+		},
+	}
+	// Manager has no servers registered; the config references "ghost".
+	h := newHandlerWithConfig(t, cfg)
+	req := httptest.NewRequest(http.MethodPost, "/v0/servers/ghost/start", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (unknown to manager)", rec.Code)
 	}
 }
