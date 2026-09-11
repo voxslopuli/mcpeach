@@ -59,8 +59,17 @@ func New(cfg *config.Config) *Gateway {
 
 // SetConfig publishes a new immutable config snapshot for subsequent reads.
 // The caller must not mutate cfg after handing it over; snapshots already
-// handed out stay valid for reads in flight.
+// handed out stay valid for reads in flight. Filters are rebuilt from the
+// new config so newly added servers get a filter (RegisterTool would
+// otherwise panic on a nil filter for an unknown server).
 func (g *Gateway) SetConfig(cfg *config.Config) {
+	filters := make(map[string]permission.Filter, len(cfg.Servers))
+	for name, s := range cfg.Servers {
+		filters[name] = permission.FromConfig(s.Tools)
+	}
+	g.mu.Lock()
+	g.filters = filters
+	g.mu.Unlock()
 	g.cfg.Store(cfg)
 }
 
@@ -76,7 +85,10 @@ func (g *Gateway) RegisterTool(server string, tool mcp.Tool) {
 		return
 	}
 	canonical := Canonicalize(server, tool.Name)
-	if !g.filters[server].Allows(canonical) {
+	g.mu.RLock()
+	f := g.filters[server]
+	g.mu.RUnlock()
+	if !f.Allows(canonical) {
 		return
 	}
 	tool.Name = canonical

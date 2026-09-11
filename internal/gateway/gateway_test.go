@@ -366,3 +366,33 @@ func TestGatewayConcurrentConfigSwap(t *testing.T) {
 	close(stop)
 	readers.Wait()
 }
+
+func TestSetConfigRebuildsFilters(t *testing.T) {
+	// A server added via SetConfig must get a filter; RegisterTool for it
+	// must not panic on a nil filter (regression for the stale-filters bug).
+	cfg := config.Default()
+	cfg.Servers = map[string]config.ServerConfig{
+		"old": {Command: "echo", Enabled: true},
+	}
+	gw := New(cfg)
+
+	// Publish a config with a new server.
+	cfg2 := config.Default()
+	cfg2.Servers = map[string]config.ServerConfig{
+		"old": {Command: "echo", Enabled: true},
+		"new": {Command: "echo", Enabled: true},
+	}
+	gw.SetConfig(cfg2)
+
+	// RegisterTool for the new server must not panic.
+	gw.RegisterTool("new", mcp.Tool{Name: "echo", Description: "echo"})
+	found := false
+	for _, t := range gw.Tools() {
+		if t.Name == "new__echo" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("tool new__echo not registered after SetConfig")
+	}
+}
