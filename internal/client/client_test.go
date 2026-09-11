@@ -271,3 +271,25 @@ func TestGetServerDetailUnknown(t *testing.T) {
 		t.Fatal("GetServer unknown: want error, got nil")
 	}
 }
+
+func TestUpdateServer(t *testing.T) {
+	cfg := config.Default()
+	cfg.Servers["srv"] = config.ServerConfig{Command: "echo", Enabled: true}
+	h := control.NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := New(srv.URL)
+
+	err := c.UpdateServer(context.Background(), "srv", AddServerRequest{Name: "srv", Command: "npx", Args: []string{"-y", "x"}, Enabled: true})
+	if err != nil {
+		t.Fatalf("UpdateServer: %v", err)
+	}
+	// The edit must be visible through the API.
+	d, err := c.GetServer(context.Background(), "srv")
+	if err != nil {
+		t.Fatalf("GetServer: %v", err)
+	}
+	if d.Command != "npx" {
+		t.Errorf("command = %q, want npx after update", d.Command)
+	}
+}

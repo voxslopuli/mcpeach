@@ -19,6 +19,8 @@ type fakeClient struct {
 	logs      map[string][]string
 	started   map[string]bool
 	stopped   map[string]bool
+	added     bool
+	updated   map[string]bool
 	details   map[string]client.ServerDetail
 	detailErr error
 }
@@ -47,6 +49,14 @@ func (f *fakeClient) StopServer(ctx context.Context, name string) error {
 	return nil
 }
 func (f *fakeClient) AddServer(ctx context.Context, req client.AddServerRequest) error {
+	f.added = true
+	return nil
+}
+func (f *fakeClient) UpdateServer(ctx context.Context, name string, req client.AddServerRequest) error {
+	if f.updated == nil {
+		f.updated = map[string]bool{}
+	}
+	f.updated[name] = true
 	return nil
 }
 func (f *fakeClient) GetServer(ctx context.Context, name string) (client.ServerDetail, error) {
@@ -577,6 +587,10 @@ func (e *errClient) StopServer(ctx context.Context, name string) error {
 	return fmt.Errorf("boom")
 }
 func (e *errClient) AddServer(ctx context.Context, req client.AddServerRequest) error {
+	return fmt.Errorf("boom")
+}
+
+func (e *errClient) UpdateServer(ctx context.Context, name string, req client.AddServerRequest) error {
 	return fmt.Errorf("boom")
 }
 

@@ -65,6 +65,7 @@ type AddServerRequest struct {
 	Env       map[string]string `json:"env,omitempty"`
 	URL       string            `json:"url,omitempty"`
 	Transport string            `json:"transport,omitempty"`
+	Enabled   bool              `json:"enabled,omitempty"`
 }
 
 // Handler serves the control-plane API.
@@ -104,6 +105,7 @@ func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) *H
 	mux.HandleFunc("GET /v0/logs", h.logs)
 	mux.HandleFunc("GET /v0/processes", h.processes)
 	mux.HandleFunc("GET /v0/servers/{name}", h.getServer)
+	mux.HandleFunc("PUT /v0/servers/{name}", h.updateServer)
 	mux.HandleFunc("GET /v0/servers/{name}/logs", h.serverLogs)
 	mux.HandleFunc("POST /v0/servers/{name}/start", h.startServer)
 	mux.HandleFunc("POST /v0/servers/{name}/stop", h.stopServer)
@@ -260,6 +262,125 @@ func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
 		h.gw.SetConfig(&candidate)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"name": req.Name})
+}
+
+// updateServer applies an edit to an existing server. It follows the same
+// transactional pattern as addServer: build a candidate, validate, persist,
+// then publish. A rename removes the old entry. If the edited server is
+// running and runtime-affecting fields changed, the response flags
+// restart_required so the client can decide whether to restart.
+func (h *Handler) updateServer(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var req AddServerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		req.Name = name // default: keep the existing name
+	}
+	if strings.Contains(req.Name, "__") {
+		writeError(w, http.StatusBadRequest, "name cannot contain '__' (reserved for tool canonicalization)")
+		return
+	}
+	if req.Command != "" && req.URL != "" {
+		writeError(w, http.StatusBadRequest, "cannot set both command and url")
+		return
+	}
+	if req.Command == "" && req.URL == "" {
+		writeError(w, http.StatusBadRequest, "must set command or url")
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	cfg := h.cfg.Load()
+	if cfg == nil {
+		writeError(w, http.StatusInternalServerError, "config not available")
+		return
+	}
+	old, ok := cfg.Servers[name]
+	if !ok {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown server %q", name))
+		return
+	}
+	if req.Name != name {
+		if _, exists := cfg.Servers[req.Name]; exists {
+			writeError(w, http.StatusConflict, fmt.Sprintf("server %q already exists", req.Name))
+			return
+		}
+	}
+
+	candidate := *cfg
+	candidate.Servers = make(map[string]config.ServerConfig, len(cfg.Servers))
+	for k, v := range cfg.Servers {
+		candidate.Servers[k] = v
+	}
+	newSC := config.ServerConfig{
+		Command:   req.Command,
+		Args:      req.Args,
+		Env:       req.Env,
+		URL:       req.URL,
+		Transport: req.Transport,
+		Enabled:   req.Enabled,
+	}
+	if req.Name != name {
+		delete(candidate.Servers, name)
+	}
+	candidate.Servers[req.Name] = newSC
+	if err := candidate.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := config.Save(h.configPath, &candidate); err != nil {
+		writeError(w, http.StatusInternalServerError, "save config: "+err.Error())
+		return
+	}
+	h.cfg.Store(&candidate)
+	if h.gw != nil {
+		h.gw.SetConfig(&candidate)
+	}
+
+	// A running server whose runtime-affecting fields changed needs a restart.
+	restartRequired := false
+	if h.mgr != nil {
+		if s := h.mgr.Server(name); s != nil && s.State().String() == "running" {
+			if old.Command != newSC.Command || old.URL != newSC.URL ||
+				old.Transport != newSC.Transport || !equalStrings(old.Args, newSC.Args) ||
+				!equalEnv(old.Env, newSC.Env) {
+				restartRequired = true
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"name": req.Name, "restart_required": restartRequired})
+}
+
+// equalStrings compares two string slices for equality.
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// equalEnv compares two env maps for equality.
+func equalEnv(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if bv, ok := b[k]; !ok || bv != v {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *Handler) listTools(w http.ResponseWriter, r *http.Request) {

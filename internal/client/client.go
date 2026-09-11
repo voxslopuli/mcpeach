@@ -51,6 +51,7 @@ type AddServerRequest struct {
 	Env       map[string]string `json:"env,omitempty"`
 	URL       string            `json:"url,omitempty"`
 	Transport string            `json:"transport,omitempty"`
+	Enabled   bool              `json:"enabled,omitempty"`
 }
 
 // ServerDetail mirrors the control-plane GET /v0/servers/{name} response.
@@ -127,6 +128,15 @@ func (c *Client) AddServer(ctx context.Context, req AddServerRequest) error {
 		return err
 	}
 	return c.do(ctx, http.MethodPost, "/v0/servers", bytes.NewReader(body), nil)
+}
+
+// UpdateServer applies an edit to an existing server via PUT /v0/servers/{name}.
+func (c *Client) UpdateServer(ctx context.Context, name string, req AddServerRequest) error {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPut, "/v0/servers/"+url.PathEscape(name), bytes.NewReader(body), nil)
 }
 
 // do performs an HTTP request and decodes the JSON response, returning an
