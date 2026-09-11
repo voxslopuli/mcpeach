@@ -69,6 +69,22 @@ func StartDaemon(t *testing.T, bin, root string, env []string) *Daemon {
 	return nil
 }
 
+// RunDaemonExpectError runs `mcpeach serve` and returns its error, expecting
+// the daemon to exit (e.g. when an enabled server fails to connect).
+func RunDaemonExpectError(t *testing.T, bin, root string, env []string) error {
+	t.Helper()
+	_ = os.MkdirAll(filepath.Join(root, "runtime", "mcpeach"), 0o700)
+	_ = os.MkdirAll(filepath.Join(root, "config", "mcpeach"), 0o700)
+	cmd := exec.Command(bin, "serve")
+	cmd.Env = append(os.Environ(), env...)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	// Return a wrapped error that includes the daemon output.
+	return fmt.Errorf("%v: %s", err, out)
+}
+
 // Stop terminates the daemon and waits for it to exit.
 func (d *Daemon) Stop() {
 	d.t.Helper()
