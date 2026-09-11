@@ -31,8 +31,7 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 echo "Downloading ${URL}"
-# NOSONAR S6506: pinned HTTPS release URL from the official repo
-curl -fsSL -o "$TMP/tui-test.tar.gz" "$URL"
+curl -fsSL -o "$TMP/tui-test.tar.gz" "$URL" # NOSONAR S6506: pinned HTTPS release URL
 
 if [[ -n "$SHA256" ]]; then
   echo "${SHA256}  $TMP/tui-test.tar.gz" | shasum -a 256 -c -

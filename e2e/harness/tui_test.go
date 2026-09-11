@@ -10,7 +10,7 @@ import (
 // installed and reports the expected version. This is a harness precondition,
 // not a product test.
 func TestTUITestAvailable(t *testing.T) {
-	out, err := exec.Command(TUITest, "--version").Output()
+	out, err := exec.Command(TUITest, "--version").Output() // nosemgrep go_subproc_rule-subproc,go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	if err != nil {
 		t.Fatalf("tui-test not available: %v (run scripts/install-tui-test.sh)", err)
 	}

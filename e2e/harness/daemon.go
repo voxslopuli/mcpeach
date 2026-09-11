@@ -39,7 +39,7 @@ func StartDaemon(t *testing.T, bin, root string, env []string) *Daemon {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command(bin, "serve")
+	cmd := exec.Command(bin, "serve") // nosemgrep go_subproc_rule-subproc,go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
@@ -54,7 +54,7 @@ func StartDaemon(t *testing.T, bin, root string, env []string) *Daemon {
 	for time.Now().Before(deadline) {
 		// If the daemon exited, report immediately.
 		if cmd.ProcessState != nil {
-			out, _ := os.ReadFile(filepath.Join(logDir, "daemon.stderr"))
+			out, _ := os.ReadFile(filepath.Join(logDir, "daemon.stderr")) // nosemgrep go_filesystem_rule-fileread
 			t.Fatalf("daemon exited early (code %d)\nstderr: %s", cmd.ProcessState.ExitCode(), out)
 		}
 		conn, err := net.Dial("unix", sock)
@@ -66,7 +66,7 @@ func StartDaemon(t *testing.T, bin, root string, env []string) *Daemon {
 	}
 	// The daemon likely exited; report its output.
 	out, _ := os.ReadFile(filepath.Join(logDir, "daemon.stderr"))
-	out2, _ := os.ReadFile(filepath.Join(logDir, "daemon.stdout"))
+	out2, _ := os.ReadFile(filepath.Join(logDir, "daemon.stdout")) // nosemgrep go_filesystem_rule-fileread
 	t.Fatalf("daemon socket %s never became connectable\nstderr: %s\nstdout: %s", sock, out, out2)
 	return nil
 }
@@ -77,7 +77,7 @@ func RunDaemonExpectError(t *testing.T, bin, root string, env []string) error {
 	t.Helper()
 	_ = os.MkdirAll(filepath.Join(root, "runtime", "mcpeach"), 0o700)
 	_ = os.MkdirAll(filepath.Join(root, "config", "mcpeach"), 0o700)
-	cmd := exec.Command(bin, "serve")
+	cmd := exec.Command(bin, "serve") // nosemgrep go_subproc_rule-subproc,go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.CombinedOutput()
 	if err == nil {

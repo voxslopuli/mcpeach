@@ -33,7 +33,7 @@ func TestRemoteServerLifecycle(t *testing.T) {
 	fx := harness.NewFixture(t)
 	streamable := buildStreamable(t)
 	// Start the streamable fixture and capture its address.
-	cmd := exec.Command(streamable)
+	cmd := exec.Command(streamable) // nosemgrep go_subproc_rule-subproc,go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd.Env = append(os.Environ(), "STREAMABLE_ADDR=127.0.0.1:0")
 	stderr, err := os.CreateTemp("", "streamable-stderr")
 	if err != nil {
