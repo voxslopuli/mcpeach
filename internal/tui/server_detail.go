@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -13,8 +14,10 @@ import (
 // detailLoadMsg triggers an async load of the detail screen's data.
 type detailLoadMsg struct{}
 
-// detailLoadedMsg carries the result of a GetServer call.
+// detailLoadedMsg carries the result of a GetServer call. The name lets the
+// Update loop drop stale responses for a server that is no longer selected.
 type detailLoadedMsg struct {
+	name   string
 	detail *client.ServerDetail
 	err    error
 }
@@ -25,13 +28,13 @@ type detailLoadedMsg struct {
 func (m *Model) loadDetailCmd(name string) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
-			return detailLoadedMsg{}
+			return detailLoadedMsg{name: name, err: errors.New("client unavailable")}
 		}
 		d, err := m.client.GetServer(context.Background(), name)
 		if err != nil {
-			return detailLoadedMsg{err: err}
+			return detailLoadedMsg{name: name, err: err}
 		}
-		return detailLoadedMsg{detail: &d}
+		return detailLoadedMsg{name: name, detail: &d}
 	}
 }
 
@@ -64,7 +67,7 @@ func (m *Model) renderDetail(b *strings.Builder) {
 	if d.Command != "" {
 		row("Command", d.Command)
 		if len(d.Args) > 0 {
-			row("Arguments", strings.Join(d.Args, " "))
+			row("Arguments", strings.Join(quoteArgs(d.Args), " "))
 		}
 	}
 	if d.URL != "" {
@@ -80,6 +83,20 @@ func (m *Model) renderDetail(b *strings.Builder) {
 }
 
 // enabledLabel renders the configured state.
+// quoteArgs wraps args containing spaces in double quotes so the display is
+// unambiguous.
+func quoteArgs(args []string) []string {
+	out := make([]string, len(args))
+	for i, a := range args {
+		if strings.ContainsAny(a, " \t") {
+			out[i] = `"` + a + `"`
+		} else {
+			out[i] = a
+		}
+	}
+	return out
+}
+
 func enabledLabel(enabled bool) string {
 	if enabled {
 		return "enabled"

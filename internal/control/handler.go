@@ -132,8 +132,7 @@ func (h *Handler) listServers(w http.ResponseWriter, r *http.Request) {
 // getServer returns the full detail for one server: config (with env as
 // source references), runtime state, and the count of its registered tools.
 func (h *Handler) getServer(w http.ResponseWriter, r *http.Request) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	// The config is an atomic snapshot; no lock needed for this read-only path.
 	cfg := h.cfg.Load()
 	if cfg == nil {
 		writeError(w, http.StatusInternalServerError, "config not available")

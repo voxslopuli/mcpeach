@@ -300,6 +300,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case detailLoadMsg:
 		return m, m.loadDetailCmd(m.detailName)
 	case detailLoadedMsg:
+		// Drop a response for a server that is no longer selected BEFORE
+		// surfacing its error.
+		if msg.name != m.detailName {
+			return m, nil
+		}
 		if msg.err != nil {
 			m.detailErr = msg.err.Error()
 			return m, nil

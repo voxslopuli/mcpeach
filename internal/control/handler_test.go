@@ -1143,17 +1143,7 @@ func TestGetServerDetail(t *testing.T) {
 	gw.RegisterTool("github", mcp.NewTool("tool2"))
 	h := NewHandler(mgr, gw, cfg)
 
-	req := httptest.NewRequest(http.MethodGet, "/v0/servers/github", nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
-	}
-	var resp ServerDetail
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	resp := getDetail(t, h, "github")
 
 	t.Run("identity and state", func(t *testing.T) {
 		if resp.Name != "github" {
@@ -1190,14 +1180,11 @@ func TestGetServerDetail(t *testing.T) {
 	})
 }
 
-func TestGetServerDetailRemote(t *testing.T) {
-	cfg := &config.Config{
-		Servers: map[string]config.ServerConfig{
-			"remote": {URL: "https://mcp.example.com/mcp", Transport: "streamable-http", Enabled: true},
-		},
-	}
-	h := newHandlerWithConfig(t, cfg)
-	req := httptest.NewRequest(http.MethodGet, "/v0/servers/remote", nil)
+// getDetail issues GET /v0/servers/{name} against h and decodes the
+// ServerDetail response, failing the test on any error.
+func getDetail(t *testing.T, h http.Handler, name string) ServerDetail {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/v0/servers/"+name, nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -1207,6 +1194,17 @@ func TestGetServerDetailRemote(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
+	return resp
+}
+
+func TestGetServerDetailRemote(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"remote": {URL: "https://mcp.example.com/mcp", Transport: "streamable-http", Enabled: true},
+		},
+	}
+	h := newHandlerWithConfig(t, cfg)
+	resp := getDetail(t, h, "remote")
 	if resp.Transport != "streamable-http" {
 		t.Errorf("transport = %q, want streamable-http", resp.Transport)
 	}
