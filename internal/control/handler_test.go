@@ -1242,13 +1242,7 @@ func TestUpdateServer(t *testing.T) {
 		Args:    []string{"-y", "server-foo"},
 		Enabled: true,
 	}
-	body, err := json.Marshal(req)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	httpReq := httptest.NewRequest(http.MethodPut, "/v0/servers/fake", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httpReq)
+	rec := putServer(t, h, "fake", req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
 	}
@@ -1264,10 +1258,7 @@ func TestUpdateServer(t *testing.T) {
 
 func TestUpdateServerUnknown(t *testing.T) {
 	h, _, _, _ := newFakeServerHandler(t)
-	body, _ := json.Marshal(AddServerRequest{Name: "fake", Command: "echo"})
-	httpReq := httptest.NewRequest(http.MethodPut, "/v0/servers/nope", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httpReq)
+	rec := putServer(t, h, "nope", AddServerRequest{Name: "fake", Command: "echo"})
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
@@ -1284,10 +1275,7 @@ func TestUpdateServerSaveFailLeavesConfigUnchanged(t *testing.T) {
 	h.configPath = filepath.Join(dir, "mcpeach.yml")
 	_ = cfg
 
-	body, _ := json.Marshal(AddServerRequest{Name: "fake", Command: "npx"})
-	httpReq := httptest.NewRequest(http.MethodPut, "/v0/servers/fake", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httpReq)
+	rec := putServer(t, h, "fake", AddServerRequest{Name: "fake", Command: "npx"})
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)
 	}
@@ -1299,10 +1287,7 @@ func TestUpdateServerSaveFailLeavesConfigUnchanged(t *testing.T) {
 
 func TestUpdateServerRename(t *testing.T) {
 	h, _, _, _ := newFakeServerHandler(t)
-	body, _ := json.Marshal(AddServerRequest{Name: "renamed", Command: "echo", Enabled: true})
-	httpReq := httptest.NewRequest(http.MethodPut, "/v0/servers/fake", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httpReq)
+	rec := putServer(t, h, "fake", AddServerRequest{Name: "renamed", Command: "echo", Enabled: true})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
 	}
@@ -1323,10 +1308,7 @@ func TestUpdateServerRestartRequired(t *testing.T) {
 		t.Fatalf("MarkRunning: %v", err)
 	}
 
-	body, _ := json.Marshal(AddServerRequest{Name: "fake", Command: "npx", Enabled: true})
-	httpReq := httptest.NewRequest(http.MethodPut, "/v0/servers/fake", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httpReq)
+	rec := putServer(t, h, "fake", AddServerRequest{Name: "fake", Command: "npx", Enabled: true})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
 	}
@@ -1346,10 +1328,7 @@ func TestUpdateServerRenameRunningRestartRequired(t *testing.T) {
 		t.Fatalf("MarkRunning: %v", err)
 	}
 
-	body, _ := json.Marshal(AddServerRequest{Name: "renamed", Command: "echo", Enabled: true})
-	httpReq := httptest.NewRequest(http.MethodPut, "/v0/servers/fake", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httpReq)
+	rec := putServer(t, h, "fake", AddServerRequest{Name: "renamed", Command: "echo", Enabled: true})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
 	}
@@ -1360,4 +1339,18 @@ func TestUpdateServerRenameRunningRestartRequired(t *testing.T) {
 	if resp["restart_required"] != true {
 		t.Errorf("restart_required = %v, want true (rename of running server)", resp["restart_required"])
 	}
+}
+
+// putServer issues PUT /v0/servers/{name} with the given request body against
+// h and returns the recorder.
+func putServer(t *testing.T, h http.Handler, name string, req AddServerRequest) *httptest.ResponseRecorder {
+	t.Helper()
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	httpReq := httptest.NewRequest(http.MethodPut, "/v0/servers/"+name, bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httpReq)
+	return rec
 }
