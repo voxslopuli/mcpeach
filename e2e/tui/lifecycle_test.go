@@ -6,12 +6,6 @@ import (
 	"github.com/mcpeach/mcpeach/e2e/harness"
 )
 
-// fakeMCPPath returns the path to the fake-mcp test binary.
-func fakeMCPPath(t *testing.T) string {
-	t.Helper()
-	return harness.BuildFakeMCP(t)
-}
-
 // TestLifecycleStartStop verifies the state-aware Space toggle starts and
 // stops a server, and that the child process and tools follow.
 func TestLifecycleStartStop(t *testing.T) {

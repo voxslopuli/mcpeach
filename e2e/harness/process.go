@@ -10,12 +10,6 @@ import (
 	"time"
 )
 
-// Process tracks a child process and asserts cleanup.
-type Process struct {
-	t   *testing.T
-	pid int
-}
-
 // PidOf returns the PID of a process by matching its command line. Returns 0
 // if not found.
 func PidOf(t *testing.T, match string) int {

@@ -151,7 +151,7 @@ func (d *Daemon) API(method, path string, body string) (int, string) {
 	if err != nil {
 		d.t.Fatalf("api %s %s: %v", method, path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	buf := make([]byte, resp.ContentLength)
 	if resp.ContentLength > 0 {
 		_, _ = resp.Body.Read(buf)
