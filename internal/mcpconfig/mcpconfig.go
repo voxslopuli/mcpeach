@@ -51,6 +51,7 @@ func Import(path string, cfg *config.Config) (*config.Config, []string, error) {
 	// Build a candidate copy so a failed validation leaves the live config
 	// untouched. The explicit map rebuild keeps mutating candidate.Servers
 	// from affecting cfg.Servers.
+	// candidate is a shallow copy; Servers is explicitly re-allocated below.
 	candidate := *cfg
 	candidate.Servers = make(map[string]config.ServerConfig, len(cfg.Servers)+len(doc.MCPServers))
 	for name, sc := range cfg.Servers {
