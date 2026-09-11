@@ -309,3 +309,28 @@ func TestImportConflicts(t *testing.T) {
 		t.Error("fresh server not imported")
 	}
 }
+
+func TestPreview(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "claude.json")
+	doc := `{"mcpServers":{"github":{"command":"npx"},"new":{"command":"npx","env":{"API_KEY":"abc"}}}}`
+	if err := os.WriteFile(src, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Servers["github"] = config.ServerConfig{Command: "old"}
+
+	imports, conflicts, secrets, err := Preview(src, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(imports) != 2 {
+		t.Errorf("imports = %v", imports)
+	}
+	if len(conflicts) != 1 || conflicts[0] != "github" {
+		t.Errorf("conflicts = %v", conflicts)
+	}
+	if len(secrets) != 1 || secrets[0].Name != "API_KEY" {
+		t.Errorf("secrets = %+v", secrets)
+	}
+}

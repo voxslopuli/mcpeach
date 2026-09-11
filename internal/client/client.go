@@ -119,6 +119,35 @@ func (c *Client) DeleteSecret(ctx context.Context, server, variable string) erro
 	return c.do(ctx, http.MethodDelete, "/v0/secrets/"+url.PathEscape(server)+"/"+url.PathEscape(variable), nil, nil)
 }
 
+// ImportResult describes what an import operation did.
+type ImportResult struct {
+	Imported  []string            `json:"imported"`
+	Conflicts []string            `json:"conflicts"`
+	Migrated  []map[string]string `json:"migrated"`
+}
+
+// Import applies a Claude Code MCP config file to the daemon.
+func (c *Client) Import(ctx context.Context, path, conflictsPolicy, secretsPolicy string) (ImportResult, error) {
+	body, _ := json.Marshal(map[string]string{
+		"path":             path,
+		"conflicts_policy": conflictsPolicy,
+		"secrets_policy":   secretsPolicy,
+	})
+	var res ImportResult
+	err := c.do(ctx, http.MethodPost, "/v0/import", bytes.NewReader(body), &res)
+	return res, err
+}
+
+// Export writes the daemon config to a Claude Code MCP config file.
+func (c *Client) Export(ctx context.Context, path, secrets string, allowPlaintext bool) error {
+	body, _ := json.Marshal(map[string]any{
+		"path":            path,
+		"secrets":         secrets,
+		"allow_plaintext": allowPlaintext,
+	})
+	return c.do(ctx, http.MethodPost, "/v0/export", bytes.NewReader(body), nil)
+}
+
 // GetServer returns the full detail for one server.
 func (c *Client) GetServer(ctx context.Context, name string) (ServerDetail, error) {
 	var d ServerDetail

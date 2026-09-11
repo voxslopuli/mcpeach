@@ -25,6 +25,9 @@ type fakeClient struct {
 	details   map[string]client.ServerDetail
 	detailErr error
 	secrets   []client.ServerSecrets
+	importRes client.ImportResult
+	importErr error
+	exportErr error
 }
 
 func (f *fakeClient) ListServers(ctx context.Context) ([]client.ServerInfo, error) {
@@ -32,6 +35,14 @@ func (f *fakeClient) ListServers(ctx context.Context) ([]client.ServerInfo, erro
 }
 func (f *fakeClient) ListSecrets(ctx context.Context) ([]client.ServerSecrets, error) {
 	return f.secrets, nil
+}
+
+func (f *fakeClient) Import(ctx context.Context, path, conflictsPolicy, secretsPolicy string) (client.ImportResult, error) {
+	return f.importRes, f.importErr
+}
+
+func (f *fakeClient) Export(ctx context.Context, path, secrets string, allowPlaintext bool) error {
+	return f.exportErr
 }
 
 func (f *fakeClient) ListTools(ctx context.Context) ([]string, error) {
@@ -428,7 +439,7 @@ func TestModelEscBackFromSubView(t *testing.T) {
 func TestListFooterShowsNewKeybindings(t *testing.T) {
 	m := NewModel(&fakeClient{})
 	v := m.View()
-	for _, want := range []string{"space start/stop", "enter manage", "n new", "l logs", "t tools", "q quit"} {
+	for _, want := range []string{"space start/stop", "enter manage", "n new", "i import", "x export", "s secrets", "l logs", "q quit"} {
 		if !strings.Contains(v.Content, want) {
 			t.Errorf("list footer missing %q: %q", want, v.Content)
 		}
@@ -589,6 +600,14 @@ func (e *errClient) ListServers(ctx context.Context) ([]client.ServerInfo, error
 }
 func (e *errClient) ListSecrets(ctx context.Context) ([]client.ServerSecrets, error) {
 	return nil, fmt.Errorf("boom")
+}
+
+func (e *errClient) Import(ctx context.Context, path, c, s string) (client.ImportResult, error) {
+	return client.ImportResult{}, fmt.Errorf("boom")
+}
+
+func (e *errClient) Export(ctx context.Context, path, s string, a bool) error {
+	return fmt.Errorf("boom")
 }
 
 func (e *errClient) ListTools(ctx context.Context) ([]string, error) {
@@ -856,5 +875,60 @@ func TestSecretsViewError(t *testing.T) {
 	m.Update(cmd())
 	if m.secretsErr == "" {
 		t.Error("secretsErr not set on error")
+	}
+}
+
+func TestImportExportFlow(t *testing.T) {
+	fc := &fakeClient{
+		importRes: client.ImportResult{Imported: []string{"new"}, Conflicts: []string{"github"}},
+	}
+	m := NewModel(fc)
+	m.loadServers()
+
+	// executeImportExport runs the client op without a TTY.
+	msg := m.executeImportExport("/tmp/x.json", ieImport)
+	ie, ok := msg.(importExportMsg)
+	if !ok {
+		t.Fatalf("import cmd produced %T", msg)
+	}
+	if ie.err != nil {
+		t.Fatalf("import err: %v", ie.err)
+	}
+	// Success returns to list and surfaces a status.
+	m.Update(ie)
+	if m.view != viewList {
+		t.Errorf("view = %v, want viewList", m.view)
+	}
+	if !strings.Contains(m.status, "imported new") || !strings.Contains(m.status, "kept existing: github") {
+		t.Errorf("status = %q", m.status)
+	}
+}
+
+func TestImportExportExportBranch(t *testing.T) {
+	fc := &fakeClient{exportErr: nil}
+	m := NewModel(fc)
+	msg := m.executeImportExport("/tmp/o.json", ieExport)
+	ie, ok := msg.(importExportMsg)
+	if !ok {
+		t.Fatalf("got %T", msg)
+	}
+	if ie.err != nil {
+		t.Fatalf("export err: %v", ie.err)
+	}
+	m.Update(ie)
+	if !strings.Contains(m.status, "exported to") {
+		t.Errorf("status = %q", m.status)
+	}
+}
+
+func TestImportExportNoClient(t *testing.T) {
+	m := NewModel(nil)
+	msg := m.runImportExportForm(ieImport)()
+	ie, ok := msg.(importExportMsg)
+	if !ok {
+		t.Fatalf("got %T", msg)
+	}
+	if ie.err == nil {
+		t.Error("expected error when client is nil")
 	}
 }
