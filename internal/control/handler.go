@@ -371,12 +371,10 @@ func (h *Handler) stopServer(w http.ResponseWriter, r *http.Request) {
 	}
 	// Commit the lifecycle state before destructive cleanup. If this fails
 	// (already stopped, or an unexpected error) the gateway stays intact.
+	// MarkStopped only fails with state sentinels for a registered server, so
+	// any error here is a state conflict, not a server fault.
 	if err := h.mgr.MarkStopped(name); err != nil {
-		if errors.Is(err, server.ErrNotRunning) || errors.Is(err, server.ErrInvalidTransition) {
-			writeError(w, http.StatusConflict, err.Error())
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
 	if h.gw != nil {
