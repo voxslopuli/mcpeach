@@ -136,15 +136,31 @@ func Save(path string, c *Config) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	// Write to a unique temp file in the same dir, fsync it, then rename
+	// (atomic on POSIX). CreateTemp avoids collisions under concurrent saves;
+	// the deferred remove guarantees cleanup on every error path.
+	f, err := os.CreateTemp(filepath.Dir(path), "mcpeach-*.tmp")
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
+	tmp := f.Name()
+	defer func() { _ = os.Remove(tmp) }()
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
 		return err
 	}
-	return nil
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // Validate checks the config for structural errors.
