@@ -21,6 +21,7 @@ type clientIface interface {
 	StartServer(ctx context.Context, name string) error
 	StopServer(ctx context.Context, name string) error
 	AddServer(ctx context.Context, req client.AddServerRequest) error
+	UpdateServer(ctx context.Context, name string, req client.AddServerRequest) error
 	GetServer(ctx context.Context, name string) (client.ServerDetail, error)
 }
 
@@ -367,8 +368,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case 'n':
 			if m.view == viewList {
 				m.view = viewForm
-				m.form = &addServerForm{}
+				m.form = &addServerForm{enabled: true}
 				return m, m.runAddServerForm()
+			}
+		case 'e':
+			// Edit the server shown on the detail screen.
+			if m.view == viewDetail && m.detailName != "" {
+				m.view = viewForm
+				return m, m.runEditServerForm(m.detailName)
 			}
 		case uv.KeyEscape, 'q':
 			// The form owns text input: esc cancels it, but 'q' must be inert so

@@ -12,13 +12,20 @@ import (
 	"github.com/mcpeach/mcpeach/internal/client"
 )
 
-// addServerForm is the huh form for adding a new MCP server.
+// addServerForm is the huh form for adding a new MCP server. The same form
+// powers edit mode: when editName is non-empty the form prepopulates from the
+// server's detail and submits via UpdateServer instead of AddServer. env and
+// enabled are carried through untouched in edit mode (the form does not edit
+// them yet; env values are source references, never resolved secrets).
 type addServerForm struct {
 	name      string
 	command   string
 	args      string
 	transport string
 	url       string
+	editName  string // non-empty => edit mode for this server
+	env       map[string]string
+	enabled   bool
 }
 
 // validateServerName is the huh field-level validator for the server name.
@@ -72,13 +79,56 @@ func buildAddServerForm(f *addServerForm) *huh.Form {
 func (m *Model) runAddServerForm() tea.Cmd {
 	return func() tea.Msg {
 		if m.form == nil {
-			m.form = &addServerForm{}
+			m.form = &addServerForm{enabled: true}
 		}
-		form := buildAddServerForm(m.form)
-		if err := form.Run(); err != nil {
+		return m.runServerForm(m.form)
+	}
+}
+
+// runServerForm runs the interactive huh form and submits it. Shared by the
+// create and edit flows.
+func (m *Model) runServerForm(f *addServerForm) tea.Msg {
+	form := buildAddServerForm(f)
+	if err := form.Run(); err != nil {
+		return addServerDoneMsg{err: err}
+	}
+	return m.submitAddServer(f)()
+}
+
+// runEditServerForm opens the shared form in edit mode for the named server,
+// prepopulating every field from its detail. Env values arrive as source
+// references, never resolved secrets.
+func (m *Model) runEditServerForm(name string) tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return addServerDoneMsg{err: errors.New("client unavailable")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		d, err := m.client.GetServer(ctx, name)
+		if err != nil {
 			return addServerDoneMsg{err: err}
 		}
-		return m.submitAddServer(m.form)()
+		f := editFormFromDetail(&d, name)
+		m.form = f
+		return m.runServerForm(f)
+	}
+}
+
+// editFormFromDetail builds a prefilled edit-mode form from a server detail.
+// Separated from runEditServerForm so tests can exercise the prefill without
+// running the interactive huh form. Env (source references) and enabled are
+// carried through so an edit cannot silently wipe them.
+func editFormFromDetail(d *client.ServerDetail, originalName string) *addServerForm {
+	return &addServerForm{
+		name:      d.Name,
+		command:   d.Command,
+		args:      strings.Join(d.Args, " "),
+		transport: d.Transport,
+		url:       d.URL,
+		editName:  originalName,
+		env:       d.Env,
+		enabled:   d.Enabled,
 	}
 }
 
@@ -102,14 +152,21 @@ func (m *Model) submitAddServer(f *addServerForm) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		err := m.client.AddServer(ctx, client.AddServerRequest{
+		req := client.AddServerRequest{
 			Name:      f.name,
 			Command:   f.command,
 			Args:      args,
-			Env:       nil, // the form does not collect env vars yet
+			Env:       f.env,
 			URL:       f.url,
 			Transport: f.transport,
-		})
+			Enabled:   f.enabled,
+		}
+		var err error
+		if f.editName != "" {
+			err = m.client.UpdateServer(ctx, f.editName, req)
+		} else {
+			err = m.client.AddServer(ctx, req)
+		}
 		return addServerDoneMsg{err: err}
 	}
 }
@@ -119,6 +176,9 @@ func (m *Model) submitAddServer(f *addServerForm) tea.Cmd {
 func validateAddServer(f *addServerForm) error {
 	if f.name == "" {
 		return errors.New("name is required")
+	}
+	if f.command != "" && f.url != "" {
+		return errors.New("cannot set both command and url")
 	}
 	if f.transport == "" || f.transport == "stdio" {
 		if f.command == "" {

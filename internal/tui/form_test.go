@@ -28,6 +28,10 @@ func (r *addRecorder) AddServer(ctx context.Context, req client.AddServerRequest
 	r.req = req
 	return nil
 }
+func (r *addRecorder) UpdateServer(ctx context.Context, name string, req client.AddServerRequest) error {
+	r.req = req
+	return nil
+}
 func (r *addRecorder) GetServer(ctx context.Context, name string) (client.ServerDetail, error) {
 	return client.ServerDetail{}, nil
 }
@@ -41,13 +45,13 @@ func TestFormSubmit(t *testing.T) {
 	}{
 		{
 			name:    "stdio",
-			form:    &addServerForm{name: "srv", command: "echo", transport: "stdio"},
-			wantReq: client.AddServerRequest{Name: "srv", Command: "echo", Transport: "stdio"},
+			form:    &addServerForm{name: "srv", command: "echo", transport: "stdio", enabled: true},
+			wantReq: client.AddServerRequest{Name: "srv", Command: "echo", Transport: "stdio", Enabled: true},
 		},
 		{
 			name:    "remote",
-			form:    &addServerForm{name: "srv", transport: "sse", url: "https://mcp.example.com/mcp"},
-			wantReq: client.AddServerRequest{Name: "srv", URL: "https://mcp.example.com/mcp", Transport: "sse"},
+			form:    &addServerForm{name: "srv", transport: "sse", url: "https://mcp.example.com/mcp", enabled: true},
+			wantReq: client.AddServerRequest{Name: "srv", URL: "https://mcp.example.com/mcp", Transport: "sse", Enabled: true},
 		},
 		{
 			name:    "remote missing url",
@@ -154,5 +158,57 @@ func TestSubmitAddServerUnclosedQuote(t *testing.T) {
 	}
 	if done.err == nil {
 		t.Error("unclosed quote: want submission error, got nil")
+	}
+}
+
+func TestFormEditModePrefills(t *testing.T) {
+	d := &client.ServerDetail{
+		Name: "srv", Command: "npx", Args: []string{"-y", "pkg"}, Transport: "stdio", Enabled: true,
+	}
+	f := editFormFromDetail(d, "srv")
+	if f.name != "srv" || f.command != "npx" || f.args != "-y pkg" || f.editName != "srv" {
+		t.Errorf("form = %+v, want prefilled from detail", f)
+	}
+}
+
+func TestFormEditSubmitsUpdate(t *testing.T) {
+	fc := &fakeClient{}
+	m := NewModel(fc)
+	f := &addServerForm{name: "srv", command: "npx", editName: "srv"}
+	msg := m.submitAddServer(f)()
+	done, ok := msg.(addServerDoneMsg)
+	if !ok {
+		t.Fatalf("submit produced %T, want addServerDoneMsg", msg)
+	}
+	if done.err != nil {
+		t.Fatalf("submit: %v", done.err)
+	}
+	if !fc.updated["srv"] {
+		t.Error("edit mode did not call UpdateServer")
+	}
+	if fc.added {
+		t.Error("edit mode must not call AddServer")
+	}
+}
+
+func TestFormRejectsCommandAndURL(t *testing.T) {
+	f := &addServerForm{name: "x", command: "npx", url: "https://mcp.example.com/mcp"}
+	if err := validateAddServer(f); err == nil {
+		t.Error("command+url both set: want error, got nil")
+	}
+}
+
+func TestFormEditPreservesEnvAndEnabled(t *testing.T) {
+	d := &client.ServerDetail{
+		Name: "srv", Command: "npx", Transport: "stdio",
+		Env:     map[string]string{"TOKEN": "keychain:mcpeach/srv/TOKEN"},
+		Enabled: false,
+	}
+	f := editFormFromDetail(d, "srv")
+	if f.env["TOKEN"] != "keychain:mcpeach/srv/TOKEN" {
+		t.Errorf("env = %v, want source reference preserved", f.env)
+	}
+	if f.enabled {
+		t.Error("enabled = true, want false (carried from detail)")
 	}
 }

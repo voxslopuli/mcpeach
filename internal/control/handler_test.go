@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -49,10 +50,9 @@ func newHandlerWithConfig(t *testing.T, cfg *config.Config) http.Handler {
 func newFakeServerHandler(t *testing.T) (*Handler, *server.Manager, *gateway.Gateway, *config.Config) {
 	t.Helper()
 	bin := buildFakeServer(t)
-	cfg := &config.Config{
-		Servers: map[string]config.ServerConfig{
-			"fake": {Command: bin, Enabled: true},
-		},
+	cfg := config.Default()
+	cfg.Servers = map[string]config.ServerConfig{
+		"fake": {Command: bin, Enabled: true},
 	}
 	mgr := server.NewManager()
 	mgr.Add(server.New("fake"))
@@ -1231,4 +1231,126 @@ func TestGetServerDetailNilConfig(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500 (nil config)", rec.Code)
 	}
+}
+
+func TestUpdateServer(t *testing.T) {
+	h, _, _, cfg := newFakeServerHandler(t)
+
+	req := AddServerRequest{
+		Name:    "fake",
+		Command: "npx",
+		Args:    []string{"-y", "server-foo"},
+		Enabled: true,
+	}
+	rec := putServer(t, h, "fake", req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+
+	// The config must reflect the edit.
+	got := *h.cfg.Load()
+	sc := got.Servers["fake"]
+	if sc.Command != "npx" || len(sc.Args) != 2 || sc.Args[1] != "server-foo" {
+		t.Errorf("server = %+v, want updated command/args", sc)
+	}
+	_ = cfg
+}
+
+func TestUpdateServerUnknown(t *testing.T) {
+	h, _, _, _ := newFakeServerHandler(t)
+	rec := putServer(t, h, "nope", AddServerRequest{Name: "fake", Command: "echo"})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestUpdateServerSaveFailLeavesConfigUnchanged(t *testing.T) {
+	h, _, _, cfg := newFakeServerHandler(t)
+	// Point configPath at a file inside a read-only dir so Save fails.
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	h.configPath = filepath.Join(dir, "mcpeach.yml")
+	_ = cfg
+
+	rec := putServer(t, h, "fake", AddServerRequest{Name: "fake", Command: "npx"})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	// The in-memory config must be unchanged.
+	if got := h.cfg.Load().Servers["fake"].Command; got == "npx" {
+		t.Error("failed save mutated the in-memory config")
+	}
+}
+
+func TestUpdateServerRename(t *testing.T) {
+	h, _, _, _ := newFakeServerHandler(t)
+	rec := putServer(t, h, "fake", AddServerRequest{Name: "renamed", Command: "echo", Enabled: true})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	got := h.cfg.Load()
+	if _, ok := got.Servers["renamed"]; !ok {
+		t.Error("renamed server not in config")
+	}
+	if _, ok := got.Servers["fake"]; ok {
+		t.Error("old server name still in config after rename")
+	}
+}
+
+func TestUpdateServerRestartRequired(t *testing.T) {
+	tests := []struct {
+		name    string
+		req     AddServerRequest
+		wantMsg string
+	}{
+		{
+			name:    "runtime field change",
+			req:     AddServerRequest{Name: "fake", Command: "npx", Enabled: true},
+			wantMsg: "want true",
+		},
+		{
+			name:    "rename of running server",
+			req:     AddServerRequest{Name: "renamed", Command: "echo", Enabled: true},
+			wantMsg: "want true (rename of running server)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, mgr, _, _ := newFakeServerHandler(t)
+			// Mark the server running so runtime-affecting edits require a restart.
+			mgr.Add(server.New("fake"))
+			if err := mgr.MarkRunning("fake"); err != nil {
+				t.Fatalf("MarkRunning: %v", err)
+			}
+
+			rec := putServer(t, h, "fake", tt.req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+			}
+			var resp map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if resp["restart_required"] != true {
+				t.Errorf("restart_required = %v, %s", resp["restart_required"], tt.wantMsg)
+			}
+		})
+	}
+}
+
+// putServer issues PUT /v0/servers/{name} with the given request body against
+// h and returns the recorder.
+func putServer(t *testing.T, h http.Handler, name string, req AddServerRequest) *httptest.ResponseRecorder {
+	t.Helper()
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	httpReq := httptest.NewRequest(http.MethodPut, "/v0/servers/"+name, bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httpReq)
+	return rec
 }
