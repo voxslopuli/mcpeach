@@ -489,7 +489,7 @@ func TestStaleLogsResponseIgnored(t *testing.T) {
 	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a"}, {Name: "b"}}}
 	m := NewModel(fc)
 	m.loadServers()
-	m.showLogs = true
+	m.view = viewLogs
 	m.logLines = []string{"a-line"}
 
 	// A response for server "b" while "a" is selected must be dropped.

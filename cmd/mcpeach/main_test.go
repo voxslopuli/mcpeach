@@ -75,7 +75,7 @@ func TestRootCommandLaunchesTUI(t *testing.T) {
 	}
 	defer func() { tuiProgramFactory = orig }()
 
-	root := newRootCmd()
+	root := newRootCommand()
 	if err := root.RunE(root, nil); err != nil {
 		t.Fatalf("root RunE: %v", err)
 	}
@@ -798,10 +798,12 @@ func waitForProcessGone(pid int, timeout time.Duration) bool {
 
 func TestExecuteRoot(t *testing.T) {
 	// executeRoot wires SIGINT/SIGTERM cancellation into fang.Execute. With
-	// no subcommand it shows help and returns nil; the point is exercising
-	// the signal-wiring line in-process (the E2E SIGTERM test covers the
-	// actual signal path via a spawned binary).
+	// `--help` it prints help and returns nil without launching the TUI (the
+	// bare-command path now runs the TUI, which needs a TTY); the point is
+	// exercising the signal-wiring line in-process (the E2E SIGTERM test
+	// covers the actual signal path via a spawned binary).
 	root := newRootCommand()
+	root.SetArgs([]string{"--help"})
 	if err := executeRoot(root); err != nil {
 		t.Fatalf("executeRoot: %v", err)
 	}
