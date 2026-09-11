@@ -31,17 +31,22 @@ type claudeDoc struct {
 // The merge is transactional: the imported servers are validated against a
 // candidate copy first, so a malformed import returns an error and leaves the
 // live config untouched.
-func Import(path string, cfg *config.Config) ([]string, error) {
+// Import parses a Claude Code MCP config JSON file and returns a candidate
+// config with the imported servers merged in, plus the names of servers that
+// already existed (conflicts). It does NOT mutate the passed-in config: the
+// caller decides how to publish the candidate (save to disk, and if a gateway
+// is live, publish via SetConfig so its filters stay in sync).
+func Import(path string, cfg *config.Config) (*config.Config, []string, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("config is nil")
+		return nil, nil, fmt.Errorf("config is nil")
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var doc claudeDoc
 	if err := json.Unmarshal(b, &doc); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return nil, nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	// Build a candidate copy so a failed validation leaves the live config
 	// untouched. The explicit map rebuild keeps mutating candidate.Servers
@@ -75,14 +80,13 @@ func Import(path string, cfg *config.Config) ([]string, error) {
 		}
 		candidate.Servers[name] = sc
 	}
-	// Validate the merged candidate before publishing, so a malformed import
-	// cannot leave the live config invalid.
+	// Validate the merged candidate before returning, so a malformed import
+	// cannot be published.
 	if err := candidate.Validate(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	sort.Strings(conflicts)
-	cfg.Servers = candidate.Servers
-	return conflicts, nil
+	return &candidate, conflicts, nil
 }
 
 // Export writes cfg's servers to a Claude Code MCP config JSON file.

@@ -125,6 +125,11 @@ func (r *Resolver) ResolveEnv(env map[string]string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("env %s: %w", k, err)
 		}
+		// A NUL byte in a value truncates it at the OS boundary when the
+		// subprocess is spawned; reject it rather than fail obscurely.
+		if strings.ContainsRune(resolved, '\x00') {
+			return nil, fmt.Errorf("env %s: resolved value contains NUL byte", k)
+		}
 		out = append(out, k+"="+resolved)
 	}
 	return out, nil

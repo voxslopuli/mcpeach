@@ -256,3 +256,11 @@ func TestSplitKeychainRefEmptyParts(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveEnvRejectsNULValue(t *testing.T) {
+	r := NewResolver(NewKeyringStore())
+	_, err := r.ResolveEnv(map[string]string{"BAD": "a\x00b"})
+	if err == nil {
+		t.Fatal("ResolveEnv with NUL value: want error, got nil")
+	}
+}

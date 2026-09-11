@@ -30,11 +30,12 @@ func TestImport(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	if _, err := Import(path, cfg); err != nil {
+	candidate, _, err := Import(path, cfg)
+	if err != nil {
 		t.Fatalf("Import: %v", err)
 	}
 
-	gh, ok := cfg.Servers["github"]
+	gh, ok := candidate.Servers["github"]
 	if !ok {
 		t.Fatal("github server not imported")
 	}
@@ -45,12 +46,16 @@ func TestImport(t *testing.T) {
 		t.Errorf("github env = %v", gh.Env)
 	}
 
-	c7, ok := cfg.Servers["context7"]
+	c7, ok := candidate.Servers["context7"]
 	if !ok {
 		t.Fatal("context7 server not imported")
 	}
 	if c7.URL != "https://mcp.context7.com/mcp" || c7.Transport != "streamable-http" {
 		t.Errorf("context7 = %+v, want streamable-http", c7)
+	}
+	// The original config must be untouched.
+	if _, ok := cfg.Servers["github"]; ok {
+		t.Error("Import mutated the original config")
 	}
 }
 
@@ -63,20 +68,21 @@ func TestImportPreservesExisting(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.Servers["existing"] = config.ServerConfig{Command: "keep", Enabled: true}
-	if _, err := Import(path, cfg); err != nil {
+	candidate, _, err := Import(path, cfg)
+	if err != nil {
 		t.Fatalf("Import: %v", err)
 	}
-	if _, ok := cfg.Servers["existing"]; !ok {
+	if _, ok := candidate.Servers["existing"]; !ok {
 		t.Error("existing server was dropped")
 	}
-	if _, ok := cfg.Servers["new"]; !ok {
+	if _, ok := candidate.Servers["new"]; !ok {
 		t.Error("new server not imported")
 	}
 }
 
 func TestImportMissingFile(t *testing.T) {
 	cfg := config.Default()
-	if _, err := Import(filepath.Join(t.TempDir(), "nope.json"), cfg); err == nil {
+	if _, _, err := Import(filepath.Join(t.TempDir(), "nope.json"), cfg); err == nil {
 		t.Fatal("Import missing file: want error, got nil")
 	}
 }
@@ -87,7 +93,7 @@ func TestImportBadJSON(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	cfg := config.Default()
-	if _, err := Import(path, cfg); err == nil {
+	if _, _, err := Import(path, cfg); err == nil {
 		t.Fatal("Import bad JSON: want error, got nil")
 	}
 }
@@ -133,7 +139,7 @@ func TestImportNilConfig(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"mcpServers": {}}`), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	if _, err := Import(path, nil); err == nil {
+	if _, _, err := Import(path, nil); err == nil {
 		t.Fatal("Import with nil config: want error, got nil")
 	}
 }
@@ -145,10 +151,11 @@ func TestImportNilServersMap(t *testing.T) {
 	}
 	cfg := config.Default()
 	cfg.Servers = nil // Servers is nil
-	if _, err := Import(path, cfg); err != nil {
+	candidate, _, err := Import(path, cfg)
+	if err != nil {
 		t.Fatalf("Import: %v", err)
 	}
-	if _, ok := cfg.Servers["a"]; !ok {
+	if _, ok := candidate.Servers["a"]; !ok {
 		t.Error("server a not imported into nil map")
 	}
 }
@@ -191,19 +198,22 @@ func TestRoundTrip(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	if _, err := Import(path, cfg); err != nil {
+	candidate, _, err := Import(path, cfg)
+	if err != nil {
 		t.Fatalf("Import: %v", err)
 	}
 	out := filepath.Join(t.TempDir(), "out.json")
-	if err := Export(out, cfg); err != nil {
+	if err := Export(out, candidate); err != nil {
 		t.Fatalf("Export: %v", err)
 	}
 
 	// Re-import the exported file and compare.
 	cfg2 := config.Default()
-	if _, err := Import(out, cfg2); err != nil {
+	candidate2, _, err := Import(out, cfg2)
+	if err != nil {
 		t.Fatalf("re-Import: %v", err)
 	}
+	cfg2 = candidate2
 	if len(cfg2.Servers) != 2 {
 		t.Fatalf("servers = %d, want 2", len(cfg2.Servers))
 	}
@@ -241,7 +251,7 @@ func TestImportConflictsSorted(t *testing.T) {
 	cfg := config.Default()
 	cfg.Servers["b"] = config.ServerConfig{Command: "old", Enabled: true}
 	cfg.Servers["a"] = config.ServerConfig{Command: "old", Enabled: true}
-	conflicts, err := Import(path, cfg)
+	_, conflicts, err := Import(path, cfg)
 	if err != nil {
 		t.Fatalf("Import: %v", err)
 	}
@@ -261,7 +271,7 @@ func TestImportInvalidEntryRejected(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.Servers["keep"] = config.ServerConfig{Command: "echo", Enabled: true}
-	if _, err := Import(path, cfg); err == nil {
+	if _, _, err := Import(path, cfg); err == nil {
 		t.Fatal("Import malformed server: want error, got nil")
 	}
 	// The live config is unchanged: the malformed server was not published and
@@ -283,7 +293,7 @@ func TestImportConflicts(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.Servers["dup"] = config.ServerConfig{Command: "old", Enabled: true}
-	conflicts, err := Import(path, cfg)
+	candidate, conflicts, err := Import(path, cfg)
 	if err != nil {
 		t.Fatalf("Import: %v", err)
 	}
@@ -291,11 +301,11 @@ func TestImportConflicts(t *testing.T) {
 		t.Errorf("conflicts = %v, want [dup]", conflicts)
 	}
 	// The conflicting server is overwritten by the imported definition.
-	if got := cfg.Servers["dup"].Command; got != "new" {
+	if got := candidate.Servers["dup"].Command; got != "new" {
 		t.Errorf("dup command = %q, want new (overwritten)", got)
 	}
 	// Non-conflicting servers are preserved.
-	if _, ok := cfg.Servers["fresh"]; !ok {
+	if _, ok := candidate.Servers["fresh"]; !ok {
 		t.Error("fresh server not imported")
 	}
 }
