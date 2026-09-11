@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -8,7 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -545,4 +548,179 @@ func TestRunDaemonPopulatesGateway(t *testing.T) {
 		"disabled": {Command: bin, Enabled: false},
 	}
 	runDaemonAndWaitForTool(t, cfg, "fake__echo")
+}
+
+// TestServeHandlesSIGTERM is an end-to-end check of the daemon's signal path:
+// it spawns the real mcpeach binary, waits for the control socket, sends
+// SIGTERM, and asserts the process exits promptly, removes the socket, and
+// reaps the stdio MCP subprocess. It exercises the fang.WithNotifySignal
+// wiring in main(), which in-process tests cannot reach.
+func TestServeHandlesSIGTERM(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns a real process; skipped in -short mode")
+	}
+
+	bin := buildMcpeachBinary(t)
+	fakeBin := testutil.BuildFakeServer(t)
+
+	// Short XDG dir: the control socket path must stay under the ~108-byte
+	// unix-socket limit, so avoid t.TempDir() (too long on macOS).
+	dir := shortXDGDir(t, "mcpeach-sigterm")
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+
+	cfg := config.Default()
+	cfg.Gateway.Addr = "127.0.0.1:0"
+	cfg.Servers = map[string]config.ServerConfig{
+		"fake": {Command: fakeBin, Enabled: true},
+	}
+	if err := config.Save(config.Path(), cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	sock := config.SocketPath()
+
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command(bin, "serve")
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start serve: %v", err)
+	}
+	dump := func() string { return "stdout:\n" + stdout.String() + "\nstderr:\n" + stderr.String() }
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		select {
+		case <-waitCh:
+		default:
+		}
+	})
+
+	// Wait for the control socket to accept connections, failing fast if the
+	// daemon dies during startup.
+	deadline := time.Now().Add(15 * time.Second)
+	ready := false
+	for time.Now().Before(deadline) {
+		if conn, err := net.Dial("unix", sock); err == nil {
+			_ = conn.Close()
+			ready = true
+			break
+		}
+		select {
+		case err := <-waitCh:
+			t.Fatalf("serve exited before the socket was ready: %v\n%s", err, dump())
+		default:
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatalf("control socket %s not ready within 15s\n%s", sock, dump())
+	}
+
+	// The daemon connects to the stdio server before it binds the socket, so
+	// the fake-mcp child is running by now. Record its PID(s) to prove it is
+	// reaped on shutdown.
+	children := waitForProcess(fakeBin, 5*time.Second)
+	if len(children) == 0 {
+		t.Fatalf("fake-mcp child never appeared\n%s", dump())
+	}
+
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("SIGTERM: %v", err)
+	}
+
+	select {
+	case err := <-waitCh:
+		if err != nil {
+			t.Fatalf("serve exited with error after SIGTERM: %v\n%s", err, dump())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("serve did not exit within 5s of SIGTERM\n%s", dump())
+	}
+
+	// The control-plane shutdown goroutine removes the socket on ctx.Done.
+	if _, err := os.Stat(sock); !os.IsNotExist(err) {
+		t.Errorf("control socket %s still present after shutdown (stat err = %v)", sock, err)
+	}
+
+	// The stdio subprocess must be reaped (gw.Close closes the client).
+	if leftover := waitForProcessGone(fakeBin, 5*time.Second); len(leftover) > 0 {
+		t.Errorf("orphaned fake-mcp process(es) still running after shutdown: %v", leftover)
+	}
+}
+
+// buildMcpeachBinary compiles the mcpeach CLI from the current package into a
+// temp dir and returns the binary path.
+func buildMcpeachBinary(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "mcpeach")
+	cmd := exec.Command("go", "build", "-o", bin, ".")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build mcpeach: %v\n%s", err, out)
+	}
+	return bin
+}
+
+// shortXDGDir creates a short XDG base dir under os.TempDir(). The unix socket
+// path derived from it must fit the ~108-byte sockaddr_un limit, which
+// t.TempDir() paths on macOS do not.
+func shortXDGDir(t *testing.T, name string) string {
+	t.Helper()
+	dir := filepath.Join(os.TempDir(), name)
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("remove %s: %v", dir, err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+// pgrepMatches returns the PIDs whose full command line matches pattern.
+// pgrep exits non-zero when nothing matches, which is reported as empty.
+func pgrepMatches(pattern string) []int {
+	out, err := exec.Command("pgrep", "-f", pattern).Output()
+	if err != nil {
+		return nil
+	}
+	var pids []int
+	for _, field := range strings.Fields(string(out)) {
+		if pid, err := strconv.Atoi(field); err == nil {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
+// waitForProcess polls until at least one process matching pattern exists,
+// returning its PIDs, or nil on timeout.
+func waitForProcess(pattern string, timeout time.Duration) []int {
+	deadline := time.Now().Add(timeout)
+	for {
+		if pids := pgrepMatches(pattern); len(pids) > 0 {
+			return pids
+		}
+		if time.Now().After(deadline) {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// waitForProcessGone polls until no process matches pattern, returning the
+// PIDs that were still alive when the deadline passed.
+func waitForProcessGone(pattern string, timeout time.Duration) []int {
+	deadline := time.Now().Add(timeout)
+	for {
+		pids := pgrepMatches(pattern)
+		if len(pids) == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return pids
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
