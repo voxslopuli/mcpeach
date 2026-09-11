@@ -13,3 +13,4 @@ coverage:
 ignore:
   - "**/*_test.go"
   - "cmd/mcpeach/signals_windows.go"
+  - "testdata/**"
