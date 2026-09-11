@@ -216,10 +216,11 @@ func importCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := mcpconfig.Import(args[0], cfg); err != nil {
+			candidate, _, err := mcpconfig.Import(args[0], cfg)
+			if err != nil {
 				return err
 			}
-			return config.Save(config.Path(), cfg)
+			return config.Save(config.Path(), candidate)
 		},
 	}
 }

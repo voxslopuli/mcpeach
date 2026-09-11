@@ -1,5 +1,8 @@
 // Package llm provides an OpenAI-compatible client and a tool-finder that
 // recommends which MCP tools to enable for a given natural-language request.
+//
+// EXPERIMENTAL: this package is not yet wired into the daemon. The tool-finder
+// integration is planned; see PLAN.md.
 package llm
 
 import (

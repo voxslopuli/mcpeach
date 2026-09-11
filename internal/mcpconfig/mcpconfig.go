@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/mcpeach/mcpeach/internal/config"
 )
@@ -26,25 +27,39 @@ type claudeDoc struct {
 
 // Import reads a Claude Code MCP config JSON file and merges its servers into
 // cfg, preserving existing servers. Servers whose names already exist in cfg
-// are overwritten; the returned slice names each overwritten server.
-func Import(path string, cfg *config.Config) ([]string, error) {
+// are overwritten; the returned slice names each overwritten server, sorted.
+// The merge is transactional: the imported servers are validated against a
+// candidate copy first, so a malformed import returns an error and leaves the
+// live config untouched.
+// Import parses a Claude Code MCP config JSON file and returns a candidate
+// config with the imported servers merged in, plus the names of servers that
+// already existed (conflicts). It does NOT mutate the passed-in config: the
+// caller decides how to publish the candidate (save to disk, and if a gateway
+// is live, publish via SetConfig so its filters stay in sync).
+func Import(path string, cfg *config.Config) (*config.Config, []string, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("config is nil")
-	}
-	if cfg.Servers == nil {
-		cfg.Servers = make(map[string]config.ServerConfig)
+		return nil, nil, fmt.Errorf("config is nil")
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var doc claudeDoc
 	if err := json.Unmarshal(b, &doc); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return nil, nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	// Build a candidate copy so a failed validation leaves the live config
+	// untouched. The explicit map rebuild keeps mutating candidate.Servers
+	// from affecting cfg.Servers.
+	// candidate is a shallow copy; Servers is explicitly re-allocated below.
+	candidate := *cfg
+	candidate.Servers = make(map[string]config.ServerConfig, len(cfg.Servers)+len(doc.MCPServers))
+	for name, sc := range cfg.Servers {
+		candidate.Servers[name] = sc
 	}
 	var conflicts []string
 	for name, cs := range doc.MCPServers {
-		if _, exists := cfg.Servers[name]; exists {
+		if _, exists := candidate.Servers[name]; exists {
 			conflicts = append(conflicts, name)
 		}
 		sc := config.ServerConfig{
@@ -64,9 +79,15 @@ func Import(path string, cfg *config.Config) ([]string, error) {
 				sc.Transport = "streamable-http"
 			}
 		}
-		cfg.Servers[name] = sc
+		candidate.Servers[name] = sc
 	}
-	return conflicts, nil
+	// Validate the merged candidate before returning, so a malformed import
+	// cannot be published.
+	if err := candidate.Validate(); err != nil {
+		return nil, nil, err
+	}
+	sort.Strings(conflicts)
+	return &candidate, conflicts, nil
 }
 
 // Export writes cfg's servers to a Claude Code MCP config JSON file.
