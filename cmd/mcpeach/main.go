@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -40,7 +41,11 @@ tool groups to clients.`,
 
 	root.AddCommand(serveCmd(), tuiCmd(), importCmd(), exportCmd(), installCmd(), uninstallCmd(), statusCmd())
 
-	if err := fang.Execute(context.Background(), root); err != nil {
+	// WithNotifySignal installs a signal.NotifyContext over ctx so SIGINT and
+	// SIGTERM cancel the command context. Without it, every shutdown goroutine
+	// keyed on ctx.Done() (control-socket cleanup, gateway.Close) is dead code
+	// and stdio subprocesses leak on Ctrl-C or a launchd/systemd stop.
+	if err := fang.Execute(context.Background(), root, fang.WithNotifySignal(os.Interrupt, syscall.SIGTERM)); err != nil {
 		os.Exit(1)
 	}
 }
