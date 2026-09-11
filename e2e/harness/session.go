@@ -50,7 +50,7 @@ func NewSession(t *testing.T, name, bin string, args []string, env []string, col
 
 // runCLI executes a tui-test command and returns its combined output.
 func (s *Session) runCLI(args ...string) (string, error) {
-	cmd := exec.Command(TUITest, args...) // nosemgrep go_subproc_rule-subproc // NOSONAR S4036
+	cmd := exec.Command(TUITest, args...) // NOSONAR S4036 // nosemgrep go_subproc_rule-subproc
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf

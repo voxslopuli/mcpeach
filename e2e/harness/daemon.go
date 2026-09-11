@@ -65,7 +65,7 @@ func StartDaemon(t *testing.T, bin, root string, env []string) *Daemon {
 		time.Sleep(50 * time.Millisecond)
 	}
 	// The daemon likely exited; report its output.
-	out, _ := os.ReadFile(filepath.Join(logDir, "daemon.stderr"))
+	out, _ := os.ReadFile(filepath.Join(logDir, "daemon.stderr"))  // nosemgrep go_filesystem_rule-fileread
 	out2, _ := os.ReadFile(filepath.Join(logDir, "daemon.stdout")) // nosemgrep go_filesystem_rule-fileread
 	t.Fatalf("daemon socket %s never became connectable\nstderr: %s\nstdout: %s", sock, out, out2)
 	return nil
