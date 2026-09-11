@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -31,12 +32,12 @@ type ToolCaller interface {
 // use: registration and lookups may happen across multiple goroutines.
 type Gateway struct {
 	mu      sync.RWMutex
-	cfg     *config.Config
-	filters map[string]permission.Filter // per-server permission filter
-	tools   map[string]mcp.Tool          // canonical name -> tool
-	clients map[string]ToolCaller        // server name -> upstream client
-	metrics *metrics.Metrics             // tool-call observability
-	log     *obs.Logger                  // structured logging
+	cfg     atomic.Pointer[config.Config] // immutable snapshot; swapped atomically
+	filters map[string]permission.Filter  // per-server permission filter
+	tools   map[string]mcp.Tool           // canonical name -> tool
+	clients map[string]ToolCaller         // server name -> upstream client
+	metrics *metrics.Metrics              // tool-call observability
+	log     *obs.Logger                   // structured logging
 }
 
 // New builds a Gateway from config.
@@ -45,20 +46,32 @@ func New(cfg *config.Config) *Gateway {
 	for name, s := range cfg.Servers {
 		filters[name] = permission.FromConfig(s.Tools)
 	}
-	return &Gateway{
-		cfg:     cfg,
+	g := &Gateway{
 		filters: filters,
 		tools:   map[string]mcp.Tool{},
 		clients: map[string]ToolCaller{},
 		metrics: metrics.New(),
 		log:     obs.Default().With("pkg", "gateway"),
 	}
+	g.cfg.Store(cfg)
+	return g
+}
+
+// SetConfig publishes a new immutable config snapshot for subsequent reads.
+// The caller must not mutate cfg after handing it over; snapshots already
+// handed out stay valid for reads in flight.
+func (g *Gateway) SetConfig(cfg *config.Config) {
+	g.cfg.Store(cfg)
 }
 
 // RegisterTool adds a tool from a server, canonicalizing its name and applying
 // the server's permission filter. Disabled servers are ignored.
 func (g *Gateway) RegisterTool(server string, tool mcp.Tool) {
-	s, ok := g.cfg.Servers[server]
+	cfg := g.cfg.Load()
+	if cfg == nil {
+		return
+	}
+	s, ok := cfg.Servers[server]
 	if !ok || !s.Enabled {
 		return
 	}
@@ -81,7 +94,11 @@ func (g *Gateway) Tools() []mcp.Tool {
 
 // GroupTools returns the tools exposed by a named group, or nil if unknown.
 func (g *Gateway) GroupTools(name string) []mcp.Tool {
-	grp, ok := g.cfg.Groups[name]
+	cfg := g.cfg.Load()
+	if cfg == nil {
+		return nil
+	}
+	grp, ok := cfg.Groups[name]
 	if !ok {
 		return nil
 	}
@@ -94,7 +111,7 @@ func (g *Gateway) GroupTools(name string) []mcp.Tool {
 		if !ok {
 			continue
 		}
-		if s, ok := g.cfg.Servers[srvName]; ok && s.Enabled {
+		if s, ok := cfg.Servers[srvName]; ok && s.Enabled {
 			// Apply the per-server permission filter (same as RegisterTool) so
 			// tools blocked by a tightened filter are not exposed via groups.
 			if f, ok := g.filters[srvName]; ok && !f.Allows(canonical) {

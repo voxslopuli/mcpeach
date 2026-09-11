@@ -309,3 +309,60 @@ func TestGatewayConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestGatewayConcurrentConfigSwap hammers the gateway's read paths while
+// another goroutine swaps the config snapshot. The gateway used to read a
+// *config.Config that the control plane mutated in place; run with -race.
+func TestGatewayConcurrentConfigSwap(t *testing.T) {
+	newCfg := func() *config.Config {
+		return &config.Config{
+			Servers: map[string]config.ServerConfig{
+				"a": {Enabled: true},
+				"b": {Enabled: true},
+			},
+			Groups: map[string]config.GroupConfig{
+				"g": {IncludedServers: []string{"a", "b"}},
+			},
+		}
+	}
+	g := New(newCfg())
+	g.RegisterTool("a", mcp.Tool{Name: "t1"})
+	g.RegisterTool("b", mcp.Tool{Name: "t1"})
+
+	stop := make(chan struct{})
+	var writers, readers sync.WaitGroup
+
+	writers.Add(1)
+	go func() {
+		defer writers.Done()
+		for i := 0; i < 500; i++ {
+			if i%2 == 0 {
+				g.cfg.Store(newCfg())
+			} else {
+				g.SetConfig(newCfg())
+			}
+		}
+	}()
+
+	for i := 0; i < 8; i++ {
+		readers.Add(1)
+		go func() {
+			defer readers.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				g.RegisterTool("a", mcp.Tool{Name: "t1"})
+				g.RegisterTool("b", mcp.Tool{Name: "t2"})
+				_ = g.Tools()
+				_ = g.GroupTools("g")
+			}
+		}()
+	}
+
+	writers.Wait()
+	close(stop)
+	readers.Wait()
+}
