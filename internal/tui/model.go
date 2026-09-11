@@ -239,25 +239,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.loadServersCmd()
 	case logsLoadedMsg:
-		if msg.err != nil {
-			m.err = msg.err.Error()
+		// Drop a response for a server that is no longer selected BEFORE
+		// surfacing its error, so a stale failure cannot appear for the
+		// now-selected server.
+		if msg.name != m.selectedServerName() {
 			return m, nil
 		}
-		// Drop a response for a server that is no longer selected.
-		if msg.name != m.selectedServerName() {
+		if msg.err != nil {
+			m.err = msg.err.Error()
 			return m, nil
 		}
 		m.err = ""
 		m.logLines = msg.lines
 		return m, nil
 	case toolsLoadedMsg:
+		// ListTools is aggregated and global, so the response is never stale
+		// regardless of selection changes.
 		if msg.err != nil {
 			m.err = msg.err.Error()
-			return m, nil
-		}
-		// Drop a stale response only when the request named a server that is no
-		// longer selected; an unnamed request (empty list) is never stale.
-		if msg.name != "" && msg.name != m.selectedServerName() {
 			return m, nil
 		}
 		m.err = ""
@@ -338,9 +337,7 @@ func (m *Model) View() tea.View {
 		for _, line := range m.logLines {
 			b.WriteString(line + "\n")
 		}
-		if m.err != "" {
-			b.WriteString("\n" + theme.Error.Render(m.err) + "\n")
-		}
+		m.renderError(&b, theme)
 		b.WriteString("\n" + theme.Help.Render("l toggle logs · esc/q back") + "\n")
 		return tea.NewView(b.String())
 	}
@@ -350,9 +347,7 @@ func (m *Model) View() tea.View {
 		for _, tool := range m.tools {
 			b.WriteString(tool + "\n")
 		}
-		if m.err != "" {
-			b.WriteString("\n" + theme.Error.Render(m.err) + "\n")
-		}
+		m.renderError(&b, theme)
 		b.WriteString("\n" + theme.Help.Render("t toggle tools · esc/q back") + "\n")
 		return tea.NewView(b.String())
 	}
@@ -360,9 +355,14 @@ func (m *Model) View() tea.View {
 	for i, s := range m.servers {
 		b.WriteString(theme.renderServerRow(s.Name, s.State, i == m.selected) + "\n")
 	}
+	m.renderError(&b, theme)
+	b.WriteString("\n" + theme.Help.Render("↑/↓ select · enter start · space stop · l logs · t tools · a add · q quit"))
+	return tea.NewView(b.String())
+}
+
+// renderError appends the current error line to the view buffer, if any.
+func (m *Model) renderError(b *strings.Builder, theme Theme) {
 	if m.err != "" {
 		b.WriteString("\n" + theme.Error.Render(m.err) + "\n")
 	}
-	b.WriteString("\n" + theme.Help.Render("↑/↓ select · enter start · space stop · l logs · t tools · a add · q quit"))
-	return tea.NewView(b.String())
 }
