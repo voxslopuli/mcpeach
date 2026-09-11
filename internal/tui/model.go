@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/mcpeach/mcpeach/internal/client"
 )
@@ -50,6 +51,7 @@ type Model struct {
 	selected      int
 	view          view
 	form          *addServerForm
+	huhForm       *huh.Form
 	err           string
 	status        string // transient informational message (not an error)
 	detailName    string
@@ -293,6 +295,12 @@ func (m *Model) toggleSelected() tea.Cmd {
 
 // Update handles messages.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// While the add/edit form is active, forward all messages to it. The form
+	// owns the terminal during this view; it emits addServerDoneMsg on
+	// completion.
+	if m.view == viewForm && m.huhForm != nil {
+		return m.updateForm(msg)
+	}
 	switch msg := msg.(type) {
 	case loadServersMsg:
 		return m, m.loadServersCmd()
@@ -528,6 +536,9 @@ func (m *Model) View() tea.View {
 	}
 
 	if m.view == viewForm {
+		if m.huhForm != nil {
+			return tea.NewView(m.huhForm.View())
+		}
 		b.WriteString(theme.Header.Render("Add server form") + "\n\n")
 		b.WriteString("Fill in the fields and press enter to submit.\n")
 		b.WriteString(theme.Help.Render("esc/q back") + "\n")

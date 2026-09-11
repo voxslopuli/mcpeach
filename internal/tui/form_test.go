@@ -3,8 +3,12 @@ package tui
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/mcpeach/mcpeach/internal/client"
 )
 
@@ -225,5 +229,42 @@ func TestFormEditPreservesEnvAndEnabled(t *testing.T) {
 	}
 	if f.enabled {
 		t.Error("enabled = true, want false (carried from detail)")
+	}
+}
+
+func TestFormIntegrationCompletes(t *testing.T) {
+	fc := &fakeClient{}
+	m := NewModel(fc)
+	// 'n' opens the form (integrated into the model).
+	m.Update(tea.KeyPressMsg{Code: 'n'})
+	if m.view != viewForm || m.huhForm == nil {
+		t.Fatalf("view=%v huhForm=%v, want viewForm + form", m.view, m.huhForm != nil)
+	}
+	// The form renders.
+	if !strings.Contains(m.View().Content, "Server name") {
+		t.Errorf("form view missing fields: %s", m.View().Content)
+	}
+	// Esc aborts and returns to the list.
+	m.Update(tea.KeyPressMsg{Code: uv.KeyEscape})
+	if m.view != viewList || m.huhForm != nil {
+		t.Errorf("view=%v huhForm=%v, want viewList + nil after esc", m.view, m.huhForm != nil)
+	}
+}
+
+func TestFormIntegrationSubmit(t *testing.T) {
+	fc := &fakeClient{}
+	m := NewModel(fc)
+	m.Update(tea.KeyPressMsg{Code: 'n'})
+	// Simulate form completion: set the state to completed and verify the
+	// submit path returns a cmd and returns to the list.
+	m.huhForm.State = huh.StateCompleted
+	// updateForm checks State after Update; a completed form's Update returns
+	// early, so the state check triggers the submit path.
+	_, cmd := m.updateForm(tea.KeyPressMsg{Code: 'x'})
+	if m.view != viewList {
+		t.Errorf("view=%v, want viewList after submit", m.view)
+	}
+	if cmd == nil {
+		t.Error("expected submit cmd after form completion")
 	}
 }
