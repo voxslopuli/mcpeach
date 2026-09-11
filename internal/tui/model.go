@@ -25,6 +25,8 @@ type clientIface interface {
 	DeleteServer(ctx context.Context, name string) error
 	GetServer(ctx context.Context, name string) (client.ServerDetail, error)
 	ListSecrets(ctx context.Context) ([]client.ServerSecrets, error)
+	Import(ctx context.Context, path, conflictsPolicy, secretsPolicy string) (client.ImportResult, error)
+	Export(ctx context.Context, path, secrets string, allowPlaintext bool) error
 }
 
 // view identifies the active TUI screen.
@@ -361,6 +363,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.secrets = msg.servers
 		m.secretsErr = ""
 		return m, nil
+	case importExportMsg:
+		m.view = viewList
+		if msg.err != nil {
+			m.err = msg.err.Error()
+			return m, nil
+		}
+		switch msg.mode {
+		case ieImport:
+			sum := fmt.Sprintf("imported %s from %s", formatImported(msg.res), msg.path)
+			if len(msg.res.Conflicts) > 0 {
+				sum += fmt.Sprintf(" (kept existing: %s)", strings.Join(msg.res.Conflicts, ", "))
+			}
+			m.status = sum
+		case ieExport:
+			m.status = "exported to " + msg.path + " (references preserved)"
+		}
+		return m, m.loadServersCmd()
 	case addServerDoneMsg:
 		m.view = viewList
 		if msg.err != nil {
@@ -430,6 +449,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.view == viewSecrets {
 				m.view = viewList
+			}
+		case 'i':
+			m.confirmDelete = ""
+			if m.view == viewList {
+				return m, m.runImportExportForm(ieImport)
+			}
+		case 'x':
+			m.confirmDelete = ""
+			if m.view == viewList {
+				return m, m.runImportExportForm(ieExport)
 			}
 		case 'e':
 			// Edit the server shown on the detail screen.
@@ -557,8 +586,16 @@ func (m *Model) View() tea.View {
 	if m.status != "" {
 		b.WriteString("\n" + theme.Help.Render(m.status) + "\n")
 	}
-	b.WriteString("\n" + theme.Help.Render("↑/↓ select · space start/stop · enter manage · n new · l logs · t tools · q quit"))
+	b.WriteString("\n" + theme.Help.Render("↑/↓ select · space start/stop · enter manage · n new · i import · x export · s secrets · l logs · q quit"))
 	return tea.NewView(b.String())
+}
+
+// formatImported renders the imported server names for a status line.
+func formatImported(res client.ImportResult) string {
+	if len(res.Imported) == 0 {
+		return "no servers"
+	}
+	return strings.Join(res.Imported, ", ")
 }
 
 // sourceStatus describes an env source's kind and resolvability without

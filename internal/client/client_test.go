@@ -6,7 +6,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -363,4 +365,36 @@ func (m *memStore) Set(service, user, secret string) error {
 func (m *memStore) Delete(service, user string) error {
 	delete(m.values, service+"/"+user)
 	return nil
+}
+
+func TestImportExportClient(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := config.Default()
+	h := control.NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	h.SetSecretStore(&memStore{values: map[string]string{}})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := New(srv.URL)
+
+	src := filepath.Join(t.TempDir(), "claude.json")
+	if err := os.WriteFile(src, []byte(`{"mcpServers":{"new":{"command":"npx","args":["-y","foo"]}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := c.Import(context.Background(), src, "replace", "keep")
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if len(res.Imported) != 1 || res.Imported[0] != "new" {
+		t.Fatalf("imported = %v", res.Imported)
+	}
+
+	dst := filepath.Join(t.TempDir(), "out.json")
+	if err := c.Export(context.Background(), dst, "references", false); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	b, _ := os.ReadFile(dst)
+	if !strings.Contains(string(b), `"new"`) {
+		t.Errorf("export missing server: %s", b)
+	}
 }

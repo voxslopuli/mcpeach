@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"github.com/mcpeach/mcpeach/internal/config"
+	"github.com/mcpeach/mcpeach/internal/secrets"
 )
 
 // claudeServer is one entry in a Claude Code mcpServers map.
@@ -36,6 +37,43 @@ type claudeDoc struct {
 // already existed (conflicts). It does NOT mutate the passed-in config: the
 // caller decides how to publish the candidate (save to disk, and if a gateway
 // is live, publish via SetConfig so its filters stay in sync).
+// SecretRef identifies a likely-plaintext secret found during a preview.
+type SecretRef struct {
+	Server string `json:"server"`
+	Name   string `json:"name"`
+}
+
+// Preview parses an import file and reports what would be imported (server
+// names), which already exist (conflicts), and which env values look like
+// plaintext secrets — without mutating the passed config.
+func Preview(path string, cfg *config.Config) (imports []string, conflicts []string, secretRefs []SecretRef, err error) {
+	if cfg == nil {
+		return nil, nil, nil, fmt.Errorf("config is nil")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var doc claudeDoc
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return nil, nil, nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	for name, cs := range doc.MCPServers {
+		imports = append(imports, name)
+		if _, exists := cfg.Servers[name]; exists {
+			conflicts = append(conflicts, name)
+		}
+		for k, v := range cs.Env {
+			if !secrets.IsSecretRef(v) && secrets.LooksLikeSecretName(k) {
+				secretRefs = append(secretRefs, SecretRef{Server: name, Name: k})
+			}
+		}
+	}
+	sort.Strings(imports)
+	sort.Strings(conflicts)
+	return imports, conflicts, secretRefs, nil
+}
+
 func Import(path string, cfg *config.Config) (*config.Config, []string, error) {
 	if cfg == nil {
 		return nil, nil, fmt.Errorf("config is nil")

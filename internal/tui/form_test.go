@@ -20,6 +20,14 @@ func (r *addRecorder) ListSecrets(ctx context.Context) ([]client.ServerSecrets, 
 	return nil, nil
 }
 
+func (r *addRecorder) Import(ctx context.Context, path, c, s string) (client.ImportResult, error) {
+	return client.ImportResult{}, nil
+}
+
+func (r *addRecorder) Export(ctx context.Context, path, s string, a bool) error {
+	return nil
+}
+
 func (r *addRecorder) ListTools(ctx context.Context) ([]string, error) {
 	return nil, nil
 }
