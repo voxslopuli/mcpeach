@@ -28,7 +28,8 @@ import (
 // version is set at build time via -ldflags.
 var version = "dev"
 
-func main() { // #pragma: no cover — entrypoint; calling it would os.Exit the test process
+// #pragma: no cover — entrypoint; calling it would os.Exit the test process
+func main() {
 	root := newRootCommand()
 
 	// executeRoot runs the CLI with signal-aware context cancellation.
