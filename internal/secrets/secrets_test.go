@@ -264,3 +264,30 @@ func TestResolveEnvRejectsNULValue(t *testing.T) {
 		t.Fatal("ResolveEnv with NUL value: want error, got nil")
 	}
 }
+
+func TestLooksLikeSecretName(t *testing.T) {
+	for name, want := range map[string]bool{
+		"GITHUB_TOKEN":  true,
+		"API_KEY":       true,
+		"DB_PASSWORD":   true,
+		"PRIVATE_KEY":   true,
+		"LOG_LEVEL":     false,
+		"PORT":          false,
+		"access_token":  true, // case-insensitive
+	} {
+		if got := LooksLikeSecretName(name); got != want {
+			t.Errorf("LooksLikeSecretName(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestResolverDelete(t *testing.T) {
+	store := &fakeStore{values: map[string]string{"mcpeach/srv/TOKEN": "v"}}
+	r := NewResolver(store)
+	if err := r.Delete("keychain:mcpeach/srv/TOKEN"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, ok := store.values["mcpeach/srv/TOKEN"]; ok {
+		t.Error("entry still present after Delete")
+	}
+}

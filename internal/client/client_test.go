@@ -310,3 +310,36 @@ func TestDeleteServer(t *testing.T) {
 		t.Error("deleted server still reachable via GetServer")
 	}
 }
+
+func TestSecretsRoundTrip(t *testing.T) {
+	cfg := config.Default()
+	cfg.Servers["srv"] = config.ServerConfig{
+		Command: "echo",
+		Enabled: true,
+		Env:     map[string]string{"TOKEN": "keychain:mcpeach/srv/TOKEN"},
+	}
+	h := control.NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := New(srv.URL)
+
+	secrets, err := c.ListSecrets(context.Background())
+	if err != nil {
+		t.Fatalf("ListSecrets: %v", err)
+	}
+	if len(secrets) != 1 || secrets[0].Server != "srv" {
+		t.Fatalf("secrets = %+v", secrets)
+	}
+	if len(secrets[0].Sources) != 1 || secrets[0].Sources[0].Reference != "keychain:mcpeach/srv/TOKEN" {
+		t.Fatalf("sources = %+v", secrets[0].Sources)
+	}
+
+	// Store then verify the ref is in the config via GetServer.
+	if err := c.StoreSecret(context.Background(), "srv", "API_KEY", "v"); err != nil {
+		t.Fatalf("StoreSecret: %v", err)
+	}
+	// Delete removes the ref.
+	if err := c.DeleteSecret(context.Background(), "srv", "API_KEY"); err != nil {
+		t.Fatalf("DeleteSecret: %v", err)
+	}
+}

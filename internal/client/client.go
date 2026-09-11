@@ -80,6 +80,45 @@ func (c *Client) ListServers(ctx context.Context) ([]ServerInfo, error) {
 	return resp.Servers, nil
 }
 
+// SecretSource mirrors the control-plane secret reference for one env var.
+// Reference holds a source ref (keychain:.../env:.../literal); the value is
+// never returned by the API.
+type SecretSource struct {
+	Name       string `json:"name"`
+	Reference  string `json:"reference"`
+	Resolvable bool   `json:"resolvable"`
+}
+
+// ServerSecrets groups a server's env secret sources.
+type ServerSecrets struct {
+	Server  string         `json:"server"`
+	Sources []SecretSource `json:"sources"`
+}
+
+// ListSecrets returns each server's env secret sources (references, never
+// values).
+func (c *Client) ListSecrets(ctx context.Context) ([]ServerSecrets, error) {
+	var resp struct {
+		Servers []ServerSecrets `json:"servers"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v0/secrets", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Servers, nil
+}
+
+// StoreSecret stores (or replaces) a keychain secret for a server env var and
+// points the config at it. The value is write-only.
+func (c *Client) StoreSecret(ctx context.Context, server, variable, value string) error {
+	body, _ := json.Marshal(map[string]string{"value": value})
+	return c.do(ctx, http.MethodPost, "/v0/secrets/"+url.PathEscape(server)+"/"+url.PathEscape(variable), bytes.NewReader(body), nil)
+}
+
+// DeleteSecret removes a keychain secret and its config reference.
+func (c *Client) DeleteSecret(ctx context.Context, server, variable string) error {
+	return c.do(ctx, http.MethodDelete, "/v0/secrets/"+url.PathEscape(server)+"/"+url.PathEscape(variable), nil, nil)
+}
+
 // GetServer returns the full detail for one server.
 func (c *Client) GetServer(ctx context.Context, name string) (ServerDetail, error) {
 	var d ServerDetail

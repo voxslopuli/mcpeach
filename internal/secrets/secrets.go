@@ -57,9 +57,35 @@ func NewResolver(store Store) *Resolver {
 	return &Resolver{store: store}
 }
 
+// SetStore swaps the keychain store. Used by tests to inject an in-memory
+// fake; production never calls it.
+func (r *Resolver) SetStore(s Store) {
+	r.store = s
+}
+
 // IsSecretRef reports whether a value is a secret reference (env: or keychain:).
 func IsSecretRef(val string) bool {
 	return strings.HasPrefix(val, "env:") || strings.HasPrefix(val, "keychain:")
+}
+
+// secretNameHints are substrings that strongly suggest an env variable name
+// carries a secret value.
+var secretNameHints = []string{
+	"TOKEN", "SECRET", "PASSWORD", "PASSWD", "API_KEY", "PRIVATE_KEY",
+	"CREDENTIAL", "AUTH", "APIKEY", "ACCESS_KEY", "SECRET_KEY",
+}
+
+// LooksLikeSecretName reports whether an environment variable name is likely
+// to hold a secret (e.g. contains TOKEN/API_KEY). Used to warn when a literal
+// (plaintext) value is chosen for a sensitive-looking variable.
+func LooksLikeSecretName(name string) bool {
+	up := strings.ToUpper(name)
+	for _, h := range secretNameHints {
+		if strings.Contains(up, h) {
+			return true
+		}
+	}
+	return false
 }
 
 // Resolve resolves a config value through the chain:
@@ -93,16 +119,29 @@ func (r *Resolver) Resolve(val string) (string, error) {
 	}
 }
 
-// Store stores a secret in the keychain under "service/user".
+// Store stores a secret in the keychain under "service/user". ref may be a
+// bare "service/user" or a full "keychain:service/user" reference.
 func (r *Resolver) Store(ref string, secret string) error {
 	if r.store == nil {
 		return errors.New("keychain store not available")
 	}
-	service, user, err := splitKeychainRef(ref)
+	service, user, err := splitKeychainRef(strings.TrimPrefix(ref, "keychain:"))
 	if err != nil {
 		return err
 	}
 	return r.store.Set(service, user, secret)
+}
+
+// Delete removes a secret from the keychain under "service/user".
+func (r *Resolver) Delete(ref string) error {
+	if r.store == nil {
+		return errors.New("keychain store not available")
+	}
+	service, user, err := splitKeychainRef(strings.TrimPrefix(ref, "keychain:"))
+	if err != nil {
+		return err
+	}
+	return r.store.Delete(service, user)
 }
 
 // ResolveEnv resolves a map of environment variables into a []string of

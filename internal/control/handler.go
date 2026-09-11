@@ -110,6 +110,9 @@ func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) *H
 	mux.HandleFunc("GET /v0/servers/{name}/logs", h.serverLogs)
 	mux.HandleFunc("POST /v0/servers/{name}/start", h.startServer)
 	mux.HandleFunc("POST /v0/servers/{name}/stop", h.stopServer)
+	mux.HandleFunc("GET /v0/secrets", h.listSecrets)
+	mux.HandleFunc("POST /v0/secrets/{server}/{variable}", h.storeSecret)
+	mux.HandleFunc("DELETE /v0/secrets/{server}/{variable}", h.deleteSecret)
 	h.mux = mux
 	return h
 }
