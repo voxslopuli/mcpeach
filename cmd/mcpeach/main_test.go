@@ -565,61 +565,11 @@ func TestServeHandlesSIGTERM(t *testing.T) {
 
 	bin := buildMcpeachBinary(t)
 	fakeBin := testutil.BuildFakeServer(t)
-
-	// Short XDG dir: the control socket path must stay under the ~108-byte
-	// unix-socket limit, so avoid t.TempDir() (too long on macOS).
-	dir := shortXDGDir(t, "mcpeach-sigterm")
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	t.Setenv("XDG_RUNTIME_DIR", dir)
-
-	cfg := config.Default()
-	cfg.Gateway.Addr = "127.0.0.1:0"
-	cfg.Servers = map[string]config.ServerConfig{
-		"fake": {Command: fakeBin, Enabled: true},
-	}
-	if err := config.Save(config.Path(), cfg); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	sock := config.SocketPath()
-
-	var stdout, stderr bytes.Buffer
-	cmd := exec.Command(filepath.Clean(bin), "serve")
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start serve: %v", err)
-	}
-	dump := func() string { return "stdout:\n" + stdout.String() + "\nstderr:\n" + stderr.String() }
-	waitCh := make(chan error, 1)
-	go func() { waitCh <- cmd.Wait() }()
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		select {
-		case <-waitCh:
-		default:
-		}
-	})
+	cmd, waitCh, dump, sock := spawnServe(t, bin, fakeBin)
 
 	// Wait for the control socket to accept connections, failing fast if the
 	// daemon dies during startup.
-	deadline := time.Now().Add(15 * time.Second)
-	ready := false
-	for time.Now().Before(deadline) {
-		if conn, err := net.Dial("unix", sock); err == nil {
-			_ = conn.Close()
-			ready = true
-			break
-		}
-		select {
-		case err := <-waitCh:
-			t.Fatalf("serve exited before the socket was ready: %v\n%s", err, dump())
-		default:
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if !ready {
-		t.Fatalf("control socket %s not ready within 15s\n%s", sock, dump())
-	}
+	waitForSocketReady(t, sock, waitCh, dump, 15*time.Second)
 
 	// The daemon connects to the stdio server before it binds the socket, so
 	// the fake-mcp child is running by now. Record its PID to prove it is
@@ -650,6 +600,72 @@ func TestServeHandlesSIGTERM(t *testing.T) {
 	// The stdio subprocess must be reaped (gw.Close closes the client).
 	if !waitForProcessGone(childPID, 5*time.Second) {
 		t.Errorf("orphaned fake-mcp process %d still running after shutdown", childPID)
+	}
+}
+
+// spawnServe writes a config with one fake stdio server and starts the
+// mcpeach serve binary, returning the process handle, its wait channel, a
+// stdout/stderr dump helper, and the control socket path.
+func spawnServe(t *testing.T, bin, fakeBin string) (*exec.Cmd, chan error, func() string, string) {
+	t.Helper()
+	// Short XDG dir: the control socket path must stay under the ~108-byte
+	// unix-socket limit, so avoid t.TempDir() (too long on macOS).
+	dir := shortXDGDir(t, "mcpeach-sigterm")
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+
+	cfg := config.Default()
+	cfg.Gateway.Addr = "127.0.0.1:0"
+	cfg.Servers = map[string]config.ServerConfig{
+		"fake": {Command: fakeBin, Enabled: true},
+	}
+	if err := config.Save(config.Path(), cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	sock := config.SocketPath()
+
+	var stdout, stderr bytes.Buffer
+	// nosemgrep: Semgrep_go_subproc_rule-subproc, Semgrep_go.lang.security.audit.dangerous-exec-command.dangerous-exec-command — bin is a t.TempDir() build path (trusted test input); exec.Command does not invoke a shell.
+	cmd := exec.Command(filepath.Clean(bin), "serve")
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start serve: %v", err)
+	}
+	dump := func() string { return "stdout:\n" + stdout.String() + "\nstderr:\n" + stderr.String() }
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		select {
+		case <-waitCh:
+		default:
+		}
+	})
+	return cmd, waitCh, dump, sock
+}
+
+// waitForSocketReady polls until the unix socket accepts connections, failing
+// the test if the daemon exits first or the deadline passes.
+func waitForSocketReady(t *testing.T, sock string, waitCh chan error, dump func() string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	ready := false
+	for time.Now().Before(deadline) {
+		if conn, err := net.Dial("unix", sock); err == nil {
+			_ = conn.Close()
+			ready = true
+			break
+		}
+		select {
+		case err := <-waitCh:
+			t.Fatalf("serve exited before the socket was ready: %v\n%s", err, dump())
+		default:
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatalf("control socket %s not ready within %s\n%s", sock, timeout, dump())
 	}
 }
 
