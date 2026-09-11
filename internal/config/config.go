@@ -145,10 +145,6 @@ func Save(path string, c *Config) error {
 	}
 	tmp := f.Name()
 	defer func() { _ = os.Remove(tmp) }()
-	if err := f.Chmod(0o600); err != nil {
-		_ = f.Close()
-		return err
-	}
 	if _, err := f.Write(b); err != nil {
 		_ = f.Close()
 		return err

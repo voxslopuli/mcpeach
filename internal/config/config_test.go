@@ -311,3 +311,15 @@ func TestSaveAtomic(t *testing.T) {
 		}
 	})
 }
+
+func TestSaveCreateTempFailure(t *testing.T) {
+	// A read-only parent dir makes CreateTemp fail.
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	if err := Save(filepath.Join(dir, "mcpeach.yml"), Default()); err == nil {
+		t.Fatal("Save into read-only dir: want error, got nil")
+	}
+}
