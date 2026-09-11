@@ -25,15 +25,16 @@ type Manager struct {
 }
 
 // NewManager builds a service manager for the current executable. run is the
-// daemon entrypoint invoked when the service starts; stop is called on shutdown.
-func NewManager(run func(ctx context.Context) error, stop func()) (*Manager, error) {
+// daemon entrypoint invoked when the service starts; stop is called on
+// shutdown; log receives any error the daemon returns (nil to discard).
+func NewManager(run func(ctx context.Context) error, stop func(), log func(err error)) (*Manager, error) {
 	cfg := &ks.Config{
 		Name:        "mcpeach",
 		DisplayName: "mcpeach MCP gateway",
 		Description: "Local MCP gateway aggregating multiple MCP servers behind a single streamable-HTTP endpoint.",
 		Arguments:   []string{"serve"},
 	}
-	prg := &Program{run: run, stop: stop}
+	prg := &Program{run: run, stop: stop, log: log}
 	s, err := ks.New(prg, cfg)
 	if err != nil {
 		return nil, err
@@ -69,16 +70,23 @@ type Program struct {
 	stop func()
 	log  func(err error)
 
-	mu       sync.Mutex // guards cancel
-	cancel   context.CancelFunc
-	stopOnce sync.Once // ensures the stop hook runs exactly once
+	mu      sync.Mutex // guards the fields below
+	cancel  context.CancelFunc
+	started bool // a Start has occurred
+	stopped bool // the current run's stop hook has fired
 }
 
-// Start runs the daemon in a goroutine.
+// Start runs the daemon in a goroutine. If a prior run is still active it is
+// cancelled first, so reusing a Program does not leak the earlier context.
 func (p *Program) Start(s ks.Service) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	p.mu.Lock()
+	if p.cancel != nil {
+		p.cancel()
+	}
 	p.cancel = cancel
+	p.started = true
+	p.stopped = false
 	p.mu.Unlock()
 	go func() {
 		if p.run != nil {
@@ -91,17 +99,22 @@ func (p *Program) Start(s ks.Service) error {
 }
 
 // Stop cancels the daemon context and invokes the caller's stop hook. It is
-// safe to call concurrently with Start and idempotent: the stop hook runs at
-// most once.
+// safe to call concurrently and idempotent per run: the stop hook fires at
+// most once per Start, and never before the first Start.
 func (p *Program) Stop(s ks.Service) error {
 	p.mu.Lock()
+	if !p.started || p.stopped {
+		p.mu.Unlock()
+		return nil
+	}
+	p.stopped = true
 	cancel := p.cancel
 	p.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
 	if p.stop != nil {
-		p.stopOnce.Do(p.stop)
+		p.stop()
 	}
 	return nil
 }
