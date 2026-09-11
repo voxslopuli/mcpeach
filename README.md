@@ -5,7 +5,7 @@ A daemon (`mcpeach serve`) that runs as a background service, aggregates multipl
 ## Features
 
 - **Single gateway endpoint** — aggregate stdio, SSE, and streamable-HTTP MCP servers behind one local streamable-HTTP endpoint (`/mcp`).
-- **TUI** — server list, start/stop, per-server logs, tool list, add-server form, process stats (CPU/RAM/ports).
+- **TUI** — server list, start/stop, per-server logs, tool list, add-server form. (Server management screen, edit/delete, process stats, and secrets workflow are planned — see PLAN.md.)
 - **Permissioning** — allow/block tool filters and curated tool groups.
 - **Secrets** — `env:` references and OS keychain storage for server credentials.
 - **Background service** — install/uninstall/status as a launchd (macOS) or systemd (Linux) service.
@@ -32,13 +32,15 @@ mcpeach status     # show service status
 
 ```
 ↑/↓   select server
-enter start server
-space stop server
+space start/stop (state-aware toggle)
+enter manage server (coming soon)
+n     add server (form)
 l     toggle log viewer
 t     toggle tools view
-a     add server (form)
 q/esc quit (or back from a sub-view)
 ```
+
+Run `mcpeach` with no arguments to launch the TUI (`mcpeach tui` is an alias).
 
 ## Configuration
 

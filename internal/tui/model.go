@@ -5,6 +5,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -22,18 +23,28 @@ type clientIface interface {
 	AddServer(ctx context.Context, req client.AddServerRequest) error
 }
 
+// view identifies the active TUI screen.
+type view int
+
+const (
+	viewList   view = iota // server list (root)
+	viewLogs               // per-server log viewer
+	viewTools              // aggregated tool list
+	viewForm               // add-server form
+	viewDetail             // server management screen (T2, not yet implemented)
+)
+
 // Model is the Bubble Tea model for the mcpeach TUI.
 type Model struct {
-	client    clientIface
-	servers   []client.ServerInfo
-	tools     []string
-	logLines  []string
-	selected  int
-	showLogs  bool
-	showTools bool
-	showForm  bool
-	form      *addServerForm
-	err       string
+	client   clientIface
+	servers  []client.ServerInfo
+	tools    []string
+	logLines []string
+	selected int
+	view     view
+	form     *addServerForm
+	err      string
+	status   string // transient informational message (not an error)
 }
 
 // NewModel builds a TUI model backed by the given control-plane client.
@@ -218,6 +229,26 @@ func (m *Model) stopSelected() tea.Cmd {
 	return m.stopServerCmd(name)
 }
 
+// toggleSelected starts or stops the selected server based on its current
+// state: stopped/error → start, running → stop. Returns nil when there is
+// nothing to do (no client, empty list, or a transitional state).
+func (m *Model) toggleSelected() tea.Cmd {
+	if m.client == nil || len(m.servers) == 0 || m.selected >= len(m.servers) {
+		return nil
+	}
+	s := m.servers[m.selected]
+	switch s.State {
+	case "running":
+		return m.stopServerCmd(s.Name)
+	case "stopped", "error":
+		return m.startServerCmd(s.Name)
+	default:
+		// Transitional or unknown state: no-op with visible status.
+		m.status = fmt.Sprintf("server %s is %s; waiting", s.Name, s.State)
+		return nil
+	}
+}
+
 // Update handles messages.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -263,7 +294,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tools = msg.tools
 		return m, nil
 	case addServerDoneMsg:
-		m.showForm = false
+		m.view = viewList
 		if msg.err != nil {
 			m.err = msg.err.Error()
 			return m, nil
@@ -276,32 +307,44 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectPrev()
 		case tea.KeyDown:
 			m.selectNext()
-		case uv.KeyEnter:
-			return m, m.startSelected()
 		case uv.KeySpace:
-			return m, m.stopSelected()
+			// State-aware lifecycle toggle: stopped/error → start, running → stop.
+			if cmd := m.toggleSelected(); cmd != nil {
+				return m, cmd
+			}
+		case uv.KeyEnter:
+			// Opens the server management screen (T2). Not implemented yet.
+			if m.view == viewList {
+				m.err = "server management coming soon"
+			}
 		case 'l':
-			m.showLogs = !m.showLogs
-			if m.showLogs && len(m.servers) > 0 {
-				return m, m.loadLogsCmd(m.servers[m.selected].Name)
+			switch m.view {
+			case viewList:
+				m.view = viewLogs
+				if len(m.servers) > 0 {
+					return m, m.loadLogsCmd(m.servers[m.selected].Name)
+				}
+			case viewLogs:
+				m.view = viewList
 			}
 		case 't':
-			m.showTools = !m.showTools
-			if m.showTools {
+			switch m.view {
+			case viewList:
+				m.view = viewTools
 				return m, m.loadToolsCmd()
+			case viewTools:
+				m.view = viewList
 			}
-		case 'a':
-			m.showForm = !m.showForm
-			if m.showForm {
+		case 'n':
+			if m.view == viewList {
+				m.view = viewForm
 				m.form = &addServerForm{}
 				return m, m.runAddServerForm()
 			}
 		case uv.KeyEscape, 'q':
-			// If a sub-view is active, esc/q toggles back to the list.
-			if m.showLogs || m.showTools || m.showForm {
-				m.showLogs = false
-				m.showTools = false
-				m.showForm = false
+			// From a sub-view, esc/q returns to the list; from the list it quits.
+			if m.view != viewList {
+				m.view = viewList
 				return m, nil
 			}
 			return m, tea.Quit
@@ -320,14 +363,14 @@ func (m *Model) View() tea.View {
 	var b strings.Builder
 	b.WriteString(theme.Title.Render("mcpeach") + "\n")
 
-	if m.showForm {
+	if m.view == viewForm {
 		b.WriteString(theme.Header.Render("Add server form") + "\n\n")
 		b.WriteString("Fill in the fields and press enter to submit.\n")
 		b.WriteString(theme.Help.Render("esc/q back") + "\n")
 		return tea.NewView(b.String())
 	}
 
-	if m.showLogs {
+	if m.view == viewLogs {
 		if len(m.servers) == 0 || m.selected >= len(m.servers) {
 			b.WriteString(theme.Help.Render("No server selected") + "\n\n")
 			b.WriteString(theme.Help.Render("l toggle logs · esc/q back") + "\n")
@@ -342,7 +385,7 @@ func (m *Model) View() tea.View {
 		return tea.NewView(b.String())
 	}
 
-	if m.showTools {
+	if m.view == viewTools {
 		b.WriteString(theme.Header.Render("Tools") + "\n\n")
 		for _, tool := range m.tools {
 			b.WriteString(tool + "\n")
@@ -356,7 +399,7 @@ func (m *Model) View() tea.View {
 		b.WriteString(theme.renderServerRow(s.Name, s.State, i == m.selected) + "\n")
 	}
 	m.renderError(&b, theme)
-	b.WriteString("\n" + theme.Help.Render("↑/↓ select · enter start · space stop · l logs · t tools · a add · q quit"))
+	b.WriteString("\n" + theme.Help.Render("↑/↓ select · space start/stop · enter manage · n new · l logs · t tools · q quit"))
 	return tea.NewView(b.String())
 }
 

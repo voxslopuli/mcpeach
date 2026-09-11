@@ -124,7 +124,7 @@ func TestModelViewLogs(t *testing.T) {
 	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a"}}, logs: map[string][]string{"a": {"line1"}}}
 	m := NewModel(fc)
 	m.loadServers()
-	m.showLogs = true
+	m.view = viewLogs
 	m.logLines = []string{"line1"}
 	v := m.View()
 	if !strings.Contains(v.Content, "Logs for a") {
@@ -138,7 +138,7 @@ func TestModelViewLogs(t *testing.T) {
 func TestModelViewTools(t *testing.T) {
 	fc := &fakeClient{tools: []string{"a__tool1"}}
 	m := NewModel(fc)
-	m.showTools = true
+	m.view = viewTools
 	m.tools = []string{"a__tool1"}
 	v := m.View()
 	if !strings.Contains(v.Content, "Tools") {
@@ -152,7 +152,7 @@ func TestModelViewTools(t *testing.T) {
 func TestModelViewForm(t *testing.T) {
 	fc := &fakeClient{}
 	m := NewModel(fc)
-	m.showForm = true
+	m.view = viewForm
 	v := m.View()
 	if !strings.Contains(v.Content, "Add server form") {
 		t.Errorf("View form missing header: %q", v.Content)
@@ -176,26 +176,86 @@ func TestModelUpdateKeyDown(t *testing.T) {
 	}
 }
 
-func TestModelUpdateStartStop(t *testing.T) {
+func TestSpaceStartsStoppedServer(t *testing.T) {
 	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a", State: "stopped"}}}
 	m := NewModel(fc)
 	m.loadServers()
 
-	_, cmd := m.Update(tea.KeyPressMsg{Code: uv.KeyEnter})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: uv.KeySpace})
 	if cmd == nil {
-		t.Fatal("Enter: want start cmd, got nil")
+		t.Fatal("Space on stopped: want start cmd, got nil")
 	}
 	cmd()
 	if !fc.started["a"] {
-		t.Error("Enter did not start server")
+		t.Error("Space on stopped did not start server")
 	}
-	_, cmd = m.Update(tea.KeyPressMsg{Code: uv.KeySpace})
+	if fc.stopped["a"] {
+		t.Error("Space on stopped must not stop the server")
+	}
+}
+
+func TestSpaceStartsErroredServer(t *testing.T) {
+	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a", State: "error"}}}
+	m := NewModel(fc)
+	m.loadServers()
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: uv.KeySpace})
 	if cmd == nil {
-		t.Fatal("Space: want stop cmd, got nil")
+		t.Fatal("Space on error: want start cmd, got nil")
+	}
+	cmd()
+	if !fc.started["a"] {
+		t.Error("Space on error did not start server")
+	}
+}
+
+func TestSpaceStopsRunningServer(t *testing.T) {
+	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a", State: "running"}}}
+	m := NewModel(fc)
+	m.loadServers()
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: uv.KeySpace})
+	if cmd == nil {
+		t.Fatal("Space on running: want stop cmd, got nil")
 	}
 	cmd()
 	if !fc.stopped["a"] {
-		t.Error("Space did not stop server")
+		t.Error("Space on running did not stop server")
+	}
+	if fc.started["a"] {
+		t.Error("Space on running must not start the server")
+	}
+}
+
+func TestSpaceNoOpOnUnknownState(t *testing.T) {
+	// Unknown/transitional states must not trigger a lifecycle command, but
+	// should surface a visible status message.
+	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a", State: "weird"}}}
+	m := NewModel(fc)
+	m.loadServers()
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: uv.KeySpace})
+	if cmd != nil {
+		t.Error("Space on unknown state: want nil cmd")
+	}
+	if m.status == "" {
+		t.Error("Space on unknown state: want visible status, got empty")
+	}
+}
+
+func TestEnterDoesNotStartOrStop(t *testing.T) {
+	for _, state := range []string{"stopped", "running", "error"} {
+		fc := &fakeClient{servers: []client.ServerInfo{{Name: "a", State: state}}}
+		m := NewModel(fc)
+		m.loadServers()
+
+		_, cmd := m.Update(tea.KeyPressMsg{Code: uv.KeyEnter})
+		if cmd != nil {
+			t.Errorf("Enter on %s: want nil cmd, got %v", state, cmd)
+		}
+		if fc.started["a"] || fc.stopped["a"] {
+			t.Errorf("Enter on %s issued a lifecycle command", state)
+		}
 	}
 }
 
@@ -272,7 +332,7 @@ func TestModelToggleLogViewer(t *testing.T) {
 	m := NewModel(fc)
 	m.loadServers()
 
-	// 'l' toggles the log viewer.
+	// 'l' opens the log viewer.
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
 	if cmd == nil {
 		t.Fatal("'l': want load-logs cmd, got nil")
@@ -283,17 +343,17 @@ func TestModelToggleLogViewer(t *testing.T) {
 		t.Fatalf("load-logs cmd produced %T, want logsLoadedMsg", msg)
 	}
 	m.Update(logsMsg)
-	if !m.showLogs {
-		t.Error("showLogs = false, want true after 'l'")
+	if m.view != viewLogs {
+		t.Errorf("view = %v, want viewLogs after 'l'", m.view)
 	}
 	if len(m.logLines) != 2 {
 		t.Errorf("logLines = %d, want 2", len(m.logLines))
 	}
 
-	// 'l' again hides the log viewer.
+	// 'l' again returns to the list.
 	m.Update(tea.KeyPressMsg{Code: 'l'})
-	if m.showLogs {
-		t.Error("showLogs = true, want false after second 'l'")
+	if m.view != viewList {
+		t.Errorf("view = %v, want viewList after second 'l'", m.view)
 	}
 }
 
@@ -304,8 +364,8 @@ func TestModelEscBackFromSubView(t *testing.T) {
 
 	// Enter the log viewer.
 	m.Update(tea.KeyPressMsg{Code: 'l'})
-	if !m.showLogs {
-		t.Fatal("showLogs = false, want true")
+	if m.view != viewLogs {
+		t.Fatal("view = viewLogs, got other")
 	}
 
 	// esc toggles back to the list, does not quit.
@@ -313,8 +373,45 @@ func TestModelEscBackFromSubView(t *testing.T) {
 	if cmd != nil {
 		t.Errorf("esc in sub-view: want nil cmd (back), got %v", cmd)
 	}
-	if m.showLogs {
-		t.Error("showLogs = true, want false after esc")
+	if m.view != viewList {
+		t.Errorf("view = %v, want viewList after esc", m.view)
+	}
+
+	// Same for the tools view.
+	m.Update(tea.KeyPressMsg{Code: 't'})
+	if m.view != viewTools {
+		t.Fatal("view = viewTools, got other")
+	}
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 'q'})
+	if cmd != nil {
+		t.Errorf("q in tools view: want nil cmd (back), got %v", cmd)
+	}
+	if m.view != viewList {
+		t.Errorf("view = %v, want viewList after q", m.view)
+	}
+}
+
+func TestListFooterShowsNewKeybindings(t *testing.T) {
+	m := NewModel(&fakeClient{})
+	v := m.View()
+	for _, want := range []string{"space start/stop", "enter manage", "n new", "l logs", "t tools", "q quit"} {
+		if !strings.Contains(v.Content, want) {
+			t.Errorf("list footer missing %q: %q", want, v.Content)
+		}
+	}
+	if strings.Contains(v.Content, "a add") {
+		t.Error("list footer still advertises old 'a add' binding")
+	}
+}
+
+func TestEnterShowsComingSoonStatus(t *testing.T) {
+	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a", State: "running"}}}
+	m := NewModel(fc)
+	m.loadServers()
+	m.Update(tea.KeyPressMsg{Code: uv.KeyEnter})
+	v := m.View()
+	if !strings.Contains(v.Content, "coming soon") {
+		t.Errorf("View missing 'coming soon' status after Enter: %q", v.Content)
 	}
 }
 
@@ -330,9 +427,9 @@ func TestModelQuitFromList(t *testing.T) {
 }
 
 func TestModelViewLogsNoServer(t *testing.T) {
-	// showLogs with no servers should not panic.
+	// logs view with no servers should not panic.
 	m := NewModel(&fakeClient{})
-	m.showLogs = true
+	m.view = viewLogs
 	v := m.View()
 	if !strings.Contains(v.Content, "No server selected") {
 		t.Errorf("View logs no-server missing message: %q", v.Content)
@@ -343,7 +440,7 @@ func TestModelToggleTools(t *testing.T) {
 	fc := &fakeClient{tools: []string{"a__tool1", "a__tool2"}}
 	m := NewModel(fc)
 
-	// 't' toggles the tools view.
+	// 't' opens the tools view.
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 't'})
 	if cmd == nil {
 		t.Fatal("'t': want load-tools cmd, got nil")
@@ -354,26 +451,37 @@ func TestModelToggleTools(t *testing.T) {
 		t.Fatalf("load-tools cmd produced %T, want toolsLoadedMsg", msg)
 	}
 	m.Update(toolsMsg)
-	if !m.showTools {
-		t.Error("showTools = false, want true after 't'")
+	if m.view != viewTools {
+		t.Errorf("view = %v, want viewTools after 't'", m.view)
 	}
 	if len(m.tools) != 2 {
 		t.Errorf("tools = %d, want 2", len(m.tools))
 	}
 }
 
-func TestModelToggleAddForm(t *testing.T) {
+func TestNOpensForm(t *testing.T) {
 	fc := &fakeClient{}
 	m := NewModel(fc)
 
-	// 'a' toggles the add-server form.
-	m.Update(tea.KeyPressMsg{Code: 'a'})
-	if !m.showForm {
-		t.Error("showForm = false, want true after 'a'")
+	// 'n' opens the add-server form.
+	m.Update(tea.KeyPressMsg{Code: 'n'})
+	if m.view != viewForm {
+		t.Errorf("view = %v, want viewForm after 'n'", m.view)
 	}
+	if m.form == nil {
+		t.Error("form not initialized after 'n'")
+	}
+
+	// esc returns to the list.
+	m.Update(tea.KeyPressMsg{Code: uv.KeyEscape})
+	if m.view != viewList {
+		t.Errorf("view = %v, want viewList after esc", m.view)
+	}
+
+	// 'a' is a no-op.
 	m.Update(tea.KeyPressMsg{Code: 'a'})
-	if m.showForm {
-		t.Error("showForm = true, want false after second 'a'")
+	if m.view != viewList {
+		t.Errorf("'a' changed view to %v, want viewList (no-op)", m.view)
 	}
 }
 
