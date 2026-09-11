@@ -11,9 +11,7 @@ import (
 func TestResizeNarrow(t *testing.T) {
 	fx := harness.NewFixture(t)
 	fake := harness.BuildFakeMCP(t)
-	fx.WriteConfig(map[string]map[string]any{
-		"fake": {"command": fake, "enabled": true},
-	})
+	fx.WriteConfig(harness.FakeServerConfig(fake))
 	d := harness.StartDaemon(t, binPath, fx.Root, fx.Env())
 	defer d.Stop()
 
@@ -23,8 +21,7 @@ func TestResizeNarrow(t *testing.T) {
 	harness.CollectArtifacts(t, s, d)
 
 	// The TUI still renders the server list.
-	s.Expect("fake")
-	s.Expect("running")
+	s.ExpectServerRunning()
 }
 
 // TestResizeLongServerName verifies a long server name does not panic the

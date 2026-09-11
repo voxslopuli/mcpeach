@@ -107,6 +107,13 @@ func (s *Session) ExpectGone(want string) {
 	_ = out
 }
 
+// ExpectServerRunning asserts the fake server is shown as running in the list.
+func (s *Session) ExpectServerRunning() {
+	s.t.Helper()
+	s.Expect("fake")
+	s.Expect("running")
+}
+
 // WaitIdle waits until the terminal is idle (no pending output).
 func (s *Session) WaitIdle() {
 	s.t.Helper()

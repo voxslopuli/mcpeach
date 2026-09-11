@@ -10,12 +10,9 @@ import (
 func TestLogsView(t *testing.T) {
 	fx := harness.NewFixture(t)
 	fake := harness.BuildFakeMCP(t)
-	_, s := fx.Setup(t, binPath, map[string]map[string]any{
-		"fake": {"command": fake, "enabled": true},
-	}, "logs", 100, 30)
+	_, s := fx.Setup(t, binPath, harness.FakeServerConfig(fake), "logs", 100, 30)
 
-	s.Expect("fake")
-	s.Expect("running")
+	s.ExpectServerRunning()
 	// 'l' toggles the log viewer for the selected server.
 	s.Key("l")
 	s.Expect("Logs for fake")

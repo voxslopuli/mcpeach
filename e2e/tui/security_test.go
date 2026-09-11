@@ -29,8 +29,7 @@ func TestSecurityNoSecretLeak(t *testing.T) {
 	harness.CollectArtifacts(t, s, d)
 
 	// The TUI shows the server; the resolved secret value must never appear.
-	s.Expect("fake")
-	s.Expect("running")
+	s.ExpectServerRunning()
 	s.Key("enter")
 	s.Expect("Server: fake")
 	harness.AssertNoSecret(t, s.Text(), secret)

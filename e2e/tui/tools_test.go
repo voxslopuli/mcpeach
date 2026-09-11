@@ -11,12 +11,9 @@ import (
 func TestToolsDistinctFromProcess(t *testing.T) {
 	fx := harness.NewFixture(t)
 	fake := harness.BuildFakeMCP(t)
-	_, s := fx.Setup(t, binPath, map[string]map[string]any{
-		"fake": {"command": fake, "enabled": true},
-	}, "tools", 100, 30)
+	_, s := fx.Setup(t, binPath, harness.FakeServerConfig(fake), "tools", 100, 30)
 
-	s.Expect("fake")
-	s.Expect("running")
+	s.ExpectServerRunning()
 	s.Key("enter")
 	s.Expect("Server: fake")
 	// The canonical tool name is shown under MCP Tools.
@@ -31,9 +28,7 @@ func TestToolsDistinctFromProcess(t *testing.T) {
 func TestToolsReflectStop(t *testing.T) {
 	fx := harness.NewFixture(t)
 	fake := harness.BuildFakeMCP(t)
-	fx.WriteConfig(map[string]map[string]any{
-		"fake": {"command": fake, "enabled": true},
-	})
+	fx.WriteConfig(harness.FakeServerConfig(fake))
 	d := harness.StartDaemon(t, binPath, fx.Root, fx.Env())
 	defer d.Stop()
 
@@ -41,8 +36,7 @@ func TestToolsReflectStop(t *testing.T) {
 	defer s.Close()
 	harness.CollectArtifacts(t, s, d)
 
-	s.Expect("fake")
-	s.Expect("running")
+	s.ExpectServerRunning()
 	harness.AssertAPI(t, d, "GET", "/v0/tools", "", 200, "fake__echo")
 
 	// Stop via the API and verify the tool disappears.

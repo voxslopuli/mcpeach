@@ -28,8 +28,7 @@ func TestLifecycleStartStop(t *testing.T) {
 	harness.CollectArtifacts(t, s, d)
 
 	// The server auto-starts running and its tool is registered.
-	s.Expect("fake")
-	s.Expect("running")
+	s.ExpectServerRunning()
 	harness.AssertAPI(t, d, "GET", "/v0/tools", "", 200, "fake__echo")
 
 	// Space stops it (state-aware toggle).

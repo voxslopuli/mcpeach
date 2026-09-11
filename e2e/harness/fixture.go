@@ -52,6 +52,14 @@ func (f *Fixture) Env(overrides ...string) []string {
 	return append(env, overrides...)
 }
 
+// FakeServerConfig returns the common config map for a single enabled fake
+// stdio server, used by most tests.
+func FakeServerConfig(fakeBin string) map[string]map[string]any {
+	return map[string]map[string]any{
+		"fake": {"command": fakeBin, "enabled": true},
+	}
+}
+
 // Setup starts a daemon and a TUI session against this fixture with the given
 // config, returning both. It registers cleanup so tests do not repeat the
 // boilerplate.

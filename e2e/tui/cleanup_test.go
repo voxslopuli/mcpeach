@@ -10,12 +10,9 @@ import (
 func TestCleanupStopKillsChild(t *testing.T) {
 	fx := harness.NewFixture(t)
 	fake := harness.BuildFakeMCP(t)
-	d, s := fx.Setup(t, binPath, map[string]map[string]any{
-		"fake": {"command": fake, "enabled": true},
-	}, "cleanup", 80, 24)
+	d, s := fx.Setup(t, binPath, harness.FakeServerConfig(fake), "cleanup", 80, 24)
 
-	s.Expect("fake")
-	s.Expect("running")
+	s.ExpectServerRunning()
 	harness.AssertProcessAlive(t, fake)
 
 	// Stop via the API and verify the child exits.
@@ -28,9 +25,7 @@ func TestCleanupStopKillsChild(t *testing.T) {
 func TestCleanupDaemonShutdown(t *testing.T) {
 	fx := harness.NewFixture(t)
 	fake := harness.BuildFakeMCP(t)
-	fx.WriteConfig(map[string]map[string]any{
-		"fake": {"command": fake, "enabled": true},
-	})
+	fx.WriteConfig(harness.FakeServerConfig(fake))
 	d := harness.StartDaemon(t, binPath, fx.Root, fx.Env())
 	harness.AssertProcessAlive(t, fake)
 

@@ -11,12 +11,9 @@ import (
 func TestNavigationEnterOpensManagement(t *testing.T) {
 	fx := harness.NewFixture(t)
 	fake := harness.BuildFakeMCP(t)
-	_, s := fx.Setup(t, binPath, map[string]map[string]any{
-		"fake": {"command": fake, "enabled": true},
-	}, "nav", 100, 30)
+	_, s := fx.Setup(t, binPath, harness.FakeServerConfig(fake), "nav", 100, 30)
 
-	s.Expect("fake")
-	s.Expect("running")
+	s.ExpectServerRunning()
 	s.Key("enter")
 	s.Expect("Server: fake")
 	s.Expect("running")
@@ -33,9 +30,7 @@ func TestNavigationEnterOpensManagement(t *testing.T) {
 func TestNavigationEscBack(t *testing.T) {
 	fx := harness.NewFixture(t)
 	fake := harness.BuildFakeMCP(t)
-	fx.WriteConfig(map[string]map[string]any{
-		"fake": {"command": fake, "enabled": true},
-	})
+	fx.WriteConfig(harness.FakeServerConfig(fake))
 	d := harness.StartDaemon(t, binPath, fx.Root, fx.Env())
 	defer d.Stop()
 
