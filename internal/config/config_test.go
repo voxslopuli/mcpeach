@@ -260,3 +260,54 @@ func TestSplitCanonical(t *testing.T) {
 		})
 	}
 }
+
+func TestSaveNilConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcpeach.yml")
+	if err := Save(path, nil); err == nil {
+		t.Fatal("Save(nil): want error, got nil")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("Save(nil) created %s", path)
+	}
+}
+
+func TestSaveAtomic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mcpeach.yml")
+
+	c := Default()
+	c.Gateway.Name = "atomic-test"
+	if err := Save(path, c); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Gateway.Name != "atomic-test" {
+		t.Errorf("gateway name = %q, want atomic-test", got.Gateway.Name)
+	}
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Errorf("temp file %s remained after a successful save", path+".tmp")
+	}
+
+	t.Run("no partial file on failure", func(t *testing.T) {
+		dir := t.TempDir()
+		// Make the destination a directory so the final rename fails after the
+		// temp file has been written; the temp file must then be cleaned up.
+		dest := filepath.Join(dir, "mcpeach.yml")
+		if err := os.Mkdir(dest, 0o700); err != nil {
+			t.Fatalf("Mkdir: %v", err)
+		}
+		if err := Save(dest, Default()); err == nil {
+			t.Fatal("Save onto a directory: want error, got nil")
+		}
+		if _, err := os.Stat(dest + ".tmp"); !os.IsNotExist(err) {
+			t.Errorf("temp file %s remained after a failed save", dest+".tmp")
+		}
+		info, err := os.Stat(dest)
+		if err != nil || !info.IsDir() {
+			t.Errorf("destination directory was modified: %v", err)
+		}
+	})
+}

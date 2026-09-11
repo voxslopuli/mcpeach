@@ -122,8 +122,13 @@ func Load(path string) (*Config, error) {
 	return c, nil
 }
 
-// Save writes the config to path, creating parent directories.
+// Save writes the config to path atomically: it marshals to a temporary file
+// in the same directory and renames it over path, so an interrupted write can
+// never leave a truncated config behind. Parent directories are created.
 func Save(path string, c *Config) error {
+	if c == nil {
+		return errors.New("config is nil")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -131,7 +136,15 @@ func Save(path string, c *Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o600)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // Validate checks the config for structural errors.
