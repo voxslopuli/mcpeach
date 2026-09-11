@@ -296,14 +296,7 @@ func (h *Handler) updateServer(w http.ResponseWriter, r *http.Request) {
 
 	candidate := *cfg
 	candidate.Servers = copyServers(cfg.Servers)
-	newSC := config.ServerConfig{
-		Command:   req.Command,
-		Args:      req.Args,
-		Env:       req.Env,
-		URL:       req.URL,
-		Transport: req.Transport,
-		Enabled:   req.Enabled,
-	}
+	newSC := serverConfigFromRequest(req)
 	if req.Name != name {
 		delete(candidate.Servers, name)
 	}
@@ -315,19 +308,34 @@ func (h *Handler) updateServer(w http.ResponseWriter, r *http.Request) {
 	if !h.publishCandidate(w, &candidate) {
 		return
 	}
+	writeJSON(w, http.StatusOK, map[string]any{"name": req.Name, "restart_required": restartNeeded(h.mgr, name, old, newSC)})
+}
 
-	// A running server whose runtime-affecting fields changed needs a restart.
-	restartRequired := false
-	if h.mgr != nil {
-		if s := h.mgr.Server(name); s != nil && s.State().String() == "running" {
-			if old.Command != newSC.Command || old.URL != newSC.URL ||
-				old.Transport != newSC.Transport || !equalStrings(old.Args, newSC.Args) ||
-				!equalEnv(old.Env, newSC.Env) {
-				restartRequired = true
-			}
-		}
+// serverConfigFromRequest maps a request body onto a config entry.
+func serverConfigFromRequest(req AddServerRequest) config.ServerConfig {
+	return config.ServerConfig{
+		Command:   req.Command,
+		Args:      req.Args,
+		Env:       req.Env,
+		URL:       req.URL,
+		Transport: req.Transport,
+		Enabled:   req.Enabled,
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"name": req.Name, "restart_required": restartRequired})
+}
+
+// restartNeeded reports whether a running server's runtime-affecting fields
+// changed, so the client should restart it to pick up the edit.
+func restartNeeded(mgr *server.Manager, name string, old, new config.ServerConfig) bool {
+	if mgr == nil {
+		return false
+	}
+	s := mgr.Server(name)
+	if s == nil || s.State().String() != "running" {
+		return false
+	}
+	return old.Command != new.Command || old.URL != new.URL ||
+		old.Transport != new.Transport || !equalStrings(old.Args, new.Args) ||
+		!equalEnv(old.Env, new.Env)
 }
 
 // parseServerRequest decodes and validates a server request body. On failure
