@@ -241,20 +241,185 @@ Two meta-tools exposed on the gateway (and reusable via TUI):
 
 > **Status: not yet exposed.** The `internal/llm` Finder (`FindTools`) is built and unit-tested but is not wired into the gateway — the `mcpeach__search_tools` / `mcpeach__load_tools` meta-tools are not registered. Wiring is deferred to a follow-up PR; this section documents the intended architecture only.
 
-## TUI
+## TUI — Comprehensive Overhaul (amended per 4th review + product contract audit)
 
-- **Left**: server list (running/stopped/error, enabled/disabled).
-- **Right**: tool list with toggles, config, group membership.
-- **Bottom**: log viewport, chroma JSON highlighting, follow-mode.
-- **Process viewer** (alongside the log viewer): per-server live resource
-  metrics — CPU %, RSS memory, PID, uptime, and the port the server is bound
-  to (for remote/stdio servers that expose one). Uses the manager's process
-  handle (via `os.FindProcess`/`/proc` on Linux, `ps` on macOS) to sample
-  resource usage.
-- **Keys**: start/stop, add/remove/edit (huh forms), toggle tool, view logs,
-  **find tools** (invokes the search-and-load flow).
-- **Design pillar**: "cute and fun but not cloying" — warm peach palette,
-  friendly-but-professional copy, no emoji spam, clear help footer.
+### Product contract corrections (current state vs. claims)
+
+The current TUI overstates its capabilities. `Enter` starts a server, `Space` stops,
+`a` opens the add form, and there is no edit/delete/process-view/secrets workflow.
+The add form is not rendered inside the Bubble Tea view (blocking `huh.Form.Run()`
+takes over the terminal). "Tools" means MCP tools, not process info. The README
+claims more than the TUI delivers. The overhaul below fixes the contract first,
+then builds the real product.
+
+### Target information architecture
+
+**Root server list** (optimized for frequent lifecycle actions):
+
+```text
+↑/↓       select server
+space     start/stop selected server (state-aware toggle)
+enter     manage selected server
+n         new server
+i         import configuration
+x         export configuration
+?         help
+q/esc     quit
+```
+
+- `Space` inspects state: stopped/error → start; running/starting → stop; stopping → no-op.
+- Lifecycle ops show transitional states (never frozen).
+- `Enter` opens the server management screen (never starts/stops).
+- `n` replaces `a`. `i`/`x` expose import/export directly.
+- `Escape` quits only from root. `q` quits except while a form owns text input.
+- Footer derives from the active view's keymap (no static string).
+
+**Server management screen** (`Enter`):
+
+```text
+Server: github                                  running
+
+Overview  Configuration  Environment  MCP Tools  Process  Logs
+
+Transport       stdio
+Command         npx
+Arguments       -y @modelcontextprotocol/server-github
+Configured      enabled
+Runtime         running
+MCP tools       14
+PID             42173
+Memory          82.4 MiB
+
+e edit configuration
+space stop
+d delete
+tab/shift+tab change section
+esc back
+```
+
+Sections: Overview (transport, states, tool count, recent error), Configuration
+(editable command/args/URL/transport/enabled/permissions), Environment (names +
+sources, never resolved values), MCP Tools (canonical names + permission state),
+Process (PID/CPU/RSS/uptime/ports), Logs (scrollable viewport, follow mode).
+
+**MCP Tools ≠ Process information** (never combined, never ambiguous):
+- MCP tools = callable functions (`filesystem__read_file`).
+- Process info = operational telemetry (PID, CPU, RSS, uptime, ports).
+- Remote servers can expose tools with no local process; a local process can run
+  with zero tools (init failure, filters, no tools defined).
+
+### Shared create/edit form (replaces `addServerForm`)
+
+One reusable configuration editor for create + edit modes. Fields: Name, Transport,
+Command, Arguments, URL, Start-automatically, Environment, Tool-permission mode,
+Allowed/blocked tools. Conditional: stdio → command/args/env; streamable-http/sse →
+URL + env/auth. Command and URL mutually exclusive. Name rejects empty + `__`.
+Edit mode prepopulates all fields but never retrieves/exposes resolved secrets.
+
+Save behavior for running servers: **Save and restart** (connect replacement before
+removing healthy client), **Save for next start** (persist only), **Cancel**.
+Failed replacement preserves the running client + tools. Secret mutations are
+transactional (no orphan keychain entry if config persistence fails).
+
+Delete (`d` from management screen): confirmation dialog; stop + disconnect first;
+remove tools from gateway; reject if a group still references it (unless user
+removes references); delete only mcpeach-owned keychain entries; atomic persist;
+restore runtime/config on failure.
+
+### Control-plane API expansion
+
+```text
+GET    /v0/servers/{name}
+PUT    /v0/servers/{name}
+DELETE /v0/servers/{name}
+GET    /v0/servers/{name}/process
+```
+
+Full server representation (no resolved secrets ever): name, state, enabled,
+command, args, env (name + source + reference only), tools (mode + list).
+Process endpoint: local (pid, cpu_percent, rss_bytes, uptime_seconds, ports) or
+remote (endpoint, connected). Establish a real process-ownership contract first
+(mcp-go owns stdio subprocesses; the manager may not expose a meaningful PID).
+
+Mutation correctness: deep-copy config → apply mutation → validate candidate →
+atomic write (tmp + fsync + rename) → commit active config → apply runtime
+topology → rollback/preserve healthy runtime on failure. Serialize mutations.
+
+### Environment variables and stored secrets
+
+Model each env entry as name + explicit source:
+
+| Source | Config value | Where value lives | Use |
+|---|---|---|---|
+| Literal | `plain-value` | YAML | non-sensitive only |
+| Environment | `env:GITHUB_TOKEN` | daemon env | shell/CI/service injection |
+| Keychain | `keychain:mcpeach/github/GITHUB_TOKEN` | OS store | interactive local secrets |
+| 1Password | env ref after `op run` injection | 1Password | teams (external workflow, no core coupling) |
+
+Keychain: service `mcpeach`, account `<server>/<env-name>`. Write-only in TUI;
+edit shows "Stored in system keychain"; replace requires new value; clear requires
+confirmation. Secrets never returned by control API, never in logs/errors/exports.
+Literal values warn if name looks secret-like (TOKEN/SECRET/PASSWORD/API_KEY/...).
+
+Secret management screen (root action menu): add/replace keychain secret, change
+source, remove unused mcpeach-owned entries, validate references without revealing
+values, find orphans. Never list other apps' credentials.
+
+### Import / export as first-class TUI workflows
+
+Import (`i`): source format (Claude JSON / mcpeach YAML), file, conflict policy
+(review each / keep existing / replace existing), credential handling (move
+probable secrets to keychain / env refs / literal with warnings). Preview before
+apply (servers found, conflicts, plaintext-secret count). Nothing persists until
+confirmed. Roll back the whole import on any failure. Do not auto-start imported
+servers. Report unsupported source fields.
+
+Export (`x`): format, servers (all/selected), secret handling (preserve refs /
+env refs / plaintext [unsafe, double-confirmed]), destination. Mode 0600, refuse
+overwrite without confirmation, never print resolved content, clean temp files.
+CLI equivalents with explicit flags: `mcpeach import <file> --conflicts=review
+--secrets=keychain`; `mcpeach export <file> --format=claude --secrets=plaintext
+--allow-plaintext-secrets`.
+
+### Default command behavior
+
+`mcpeach` (no subcommand) launches the TUI. `mcpeach tui` remains a compatibility
+alias for ≥1 release cycle. Daemon-not-running shows a deliberate startup screen
+(Start for this session / Install background service / Retry / Quit) — never a
+silent empty list. No auto-start of the daemon without consent.
+
+### Keyboard contract (per view)
+
+- Root: ↑/↓ select, space start/stop, enter manage, n new, i import, x export, ? help, q/esc quit.
+- Management: tab/shift+tab section, e edit, space start/stop, d delete, r refresh, esc back, q quit.
+- Logs: ↑/↓ scroll, pgup/dn page, f follow, c clear filter, esc back.
+- MCP tools: ↑/↓ select, space allow/block, / filter, esc back.
+- Forms: tab next, shift+tab prev, enter select/submit, ctrl+s save, esc cancel.
+
+### README rewrite
+
+Rewrite around the user problem and real workflows: product statement, why mcpeach,
+architecture diagram, 5-minute quick start, TUI tour (screenshots only after E2E
+passes), server config examples, secrets guide, import/export guide, client setup
+(Claude Desktop/Code, Cursor, generic streamable-HTTP), operational guide, security
+model, project status (implemented vs planned — never claim unimplemented features).
+
+### TUI overhaul phases (strict TDD, gates green, confirmation at each phase end)
+
+| # | Deliverable | Tests |
+|---|---|---|
+| T1 | Product contract + keybindings: typed active-view model, state-aware Space, Enter→manage, n→new, root command launches TUI, `tui` alias, daemon-connection error screen, view-specific footer | model transitions, keymap, root-vs-tui equivalence, missing-daemon screen |
+| T2 | Complete server representations: GET /v0/servers/{name}, unresolved env metadata, deterministic sorting, client deadlines, last-known-data-on-failure | round-trip, no-secret-leak, 404, determinism, timeouts |
+| T3 | Server management screen: Overview/Config/Env/MCP Tools/Process/Logs sections, keyboard nav, resize, loading/empty/error states, remote-without-PID | section rendering, tools≠process, remote process view, server-scoped logs, long/Unicode safety, narrow terminals |
+| T4 | Shared create/edit form: Bubble-Tea-integrated (no blocking Run), create+edit modes, all fields, typed args editor, save-only vs save-and-restart, candidate validation, atomic persist, healthy-runtime preservation | create/edit every field, stdio↔remote switch, command+URL rejection, env/tool-filter preservation, failed-save no-mutation, failed-restart preserves client |
+| T5 | Deletion: DELETE /v0/servers/{name}, group-reference analysis, confirmation, stop+deregister, owned-keychain cleanup after successful persist, deterministic selection return | delete stopped/running, catalog cleanup, child exit, group-block, 404, persist-failure no-partial-delete |
+| T6 | Secret workflow: standardized keychain refs, write-only store/replace/validate/delete, env-source model, plaintext-secret detection, rollback, structured redaction, `op run` documented (external) | resolve at startup, missing-env fails clearly, no-disclosure, edit-never-retrieves, store-failure no-config-change, save-failure removes new entries, delete only owned, no-secret-in-output |
+| T7 | TUI import/export: parse/preview/validate/apply/serialize stages, conflict policies, secret migration, safe export, plaintext gated, atomic files, unsupported-field report | import all transports, review conflicts, multi-server rollback, ref-preserving export, plaintext gated, 0600, no-leak |
+| T8 | README rewrite + PLAN/AGENTS reconciliation, docs/ guides | every documented command on fresh XDG root, JSON/YAML examples valid, keys match keymap, routes match handler, no real credentials, docs agree |
+| T9 | E2E plan revision (`microsoft/tui-test`): replace outdated keybinding scenarios, add management/edit/delete/process/tools/secrets/import/export/default-command suites, fake keychain backend | E2E suites green on isolated state |
+
+Delivery order: T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 (each phase useful alone;
+no advertising of incomplete functionality).
 
 ## Service Install
 
