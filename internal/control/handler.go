@@ -420,12 +420,21 @@ func (h *Handler) deleteServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Runtime cleanup after the config is committed: stop the server and
-	// remove its client + tools from the gateway.
+	// Runtime cleanup after the config is committed: stop the server, remove
+	// its client + tools from the gateway, and deregister it from the manager.
+	h.cleanupRuntime(name)
+	writeJSON(w, http.StatusOK, map[string]any{"name": name, "deleted": true})
+}
+
+// cleanupRuntime stops a server, removes its client and tools from the
+// gateway, and deregisters it from the manager. Shared by the delete and
+// update (rename) paths so stale state cannot survive a mutation.
+func (h *Handler) cleanupRuntime(name string) {
 	if h.mgr != nil {
 		if s := h.mgr.Server(name); s != nil {
 			_ = s.Stop()
 		}
+		h.mgr.Remove(name)
 	}
 	if h.gw != nil {
 		if c := h.gw.RemoveServer(name); c != nil {
@@ -437,7 +446,6 @@ func (h *Handler) deleteServer(w http.ResponseWriter, r *http.Request) {
 	if h.syncTools != nil {
 		h.syncTools()
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"name": name, "deleted": true})
 }
 
 func equalEnv(a, b map[string]string) bool {

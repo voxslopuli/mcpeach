@@ -367,6 +367,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case 'l':
+			m.confirmDelete = ""
 			switch m.view {
 			case viewList:
 				m.view = viewLogs
@@ -377,6 +378,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.view = viewList
 			}
 		case 't':
+			m.confirmDelete = ""
 			switch m.view {
 			case viewList:
 				m.view = viewTools
@@ -385,6 +387,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.view = viewList
 			}
 		case 'n':
+			m.confirmDelete = ""
 			if m.view == viewList {
 				m.view = viewForm
 				m.form = &addServerForm{enabled: true}
@@ -392,6 +395,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case 'e':
 			// Edit the server shown on the detail screen.
+			m.confirmDelete = ""
 			if m.view == viewDetail && m.detailName != "" {
 				m.view = viewForm
 				return m, m.runEditServerForm(m.detailName)
@@ -410,9 +414,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.deleteServerCmd(name)
 			}
 		case uv.KeyEscape, 'q':
-			// An armed delete confirmation is cancelled by esc (or any nav).
+			// While a delete confirmation is armed, only esc cancels it (the
+			// prompt says [esc]); 'q' is inert so it cannot be mistaken for
+			// confirmation or accidentally quit.
 			if m.confirmDelete != "" {
-				m.confirmDelete = ""
+				if msg.Code == uv.KeyEscape {
+					m.confirmDelete = ""
+					return m, nil
+				}
 				return m, nil
 			}
 			// The form owns text input: esc cancels it, but 'q' must be inert so
