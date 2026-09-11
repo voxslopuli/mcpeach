@@ -41,7 +41,7 @@ func TestImportExport(t *testing.T) {
 	dst := filepath.Join(fx.Root, "out.json")
 	harness.AssertAPI(t, d, "POST", "/v0/export",
 		`{"path":"`+dst+`","secrets":"references"}`, 200)
-	out, err := os.ReadFile(dst)
+	out, err := os.ReadFile(dst) // nosemgrep go_filesystem_rule-fileread
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestImportPlaintextRequiresFlag(t *testing.T) {
 	// With the flag, the value is written.
 	harness.AssertAPI(t, d, "POST", "/v0/export",
 		`{"path":"`+dst+`","secrets":"plaintext","allow_plaintext":true}`, 200)
-	out, err := os.ReadFile(dst)
+	out, err := os.ReadFile(dst) // nosemgrep go_filesystem_rule-fileread
 	if err != nil {
 		t.Fatal(err)
 	}
