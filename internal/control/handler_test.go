@@ -217,8 +217,12 @@ func TestAddServer(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
 	}
-	if _, ok := cfg.Servers["new"]; !ok {
-		t.Error("server 'new' not added to config")
+	live := h.cfg.Load()
+	if live == nil || live.Servers["new"].Command != "echo" {
+		t.Errorf("server 'new' not published to live config: %+v", live)
+	}
+	if _, ok := cfg.Servers["new"]; ok {
+		t.Error("original config pointer mutated; snapshot must be immutable")
 	}
 }
 
@@ -245,11 +249,12 @@ func TestAddServerConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 
-	if len(cfg.Servers) != n {
-		t.Fatalf("Servers = %d, want %d (lost updates)", len(cfg.Servers), n)
+	live := h.cfg.Load()
+	if live == nil || len(live.Servers) != n {
+		t.Fatalf("Servers = %+v, want %d (lost updates)", live, n)
 	}
 	for i := 0; i < n; i++ {
-		if _, ok := cfg.Servers[fmt.Sprintf("srv-%d", i)]; !ok {
+		if _, ok := live.Servers[fmt.Sprintf("srv-%d", i)]; !ok {
 			t.Errorf("server srv-%d missing after concurrent adds", i)
 		}
 	}
@@ -378,7 +383,12 @@ func TestAddServerSaveFail(t *testing.T) {
 	// The in-memory config must NOT contain the new server: a failed save
 	// must leave the active daemon state unchanged.
 	if _, ok := cfg.Servers["a"]; ok {
-		t.Error("server 'a' present in in-memory config after failed save (nontransactional)")
+		t.Error("original config mutated after failed save")
+	}
+	if live := h.cfg.Load(); live != nil {
+		if _, ok := live.Servers["a"]; ok {
+			t.Error("server 'a' present in live config after failed save (nontransactional)")
+		}
 	}
 }
 
@@ -393,7 +403,12 @@ func TestAddServerInvalidTransport(t *testing.T) {
 		t.Fatalf("status = %d, want 400 (invalid transport)", rec.Code)
 	}
 	if _, ok := cfg.Servers["a"]; ok {
-		t.Error("server 'a' present in in-memory config after rejected add")
+		t.Error("original config mutated after rejected add")
+	}
+	if live := h.cfg.Load(); live != nil {
+		if _, ok := live.Servers["a"]; ok {
+			t.Error("server 'a' present in live config after rejected add")
+		}
 	}
 }
 
@@ -853,9 +868,10 @@ func TestConcurrentControlOps(t *testing.T) {
 	}
 	wg.Wait()
 
-	// All 10 servers should be present.
-	if len(cfg.Servers) != 10 {
-		t.Fatalf("Servers = %d, want 10", len(cfg.Servers))
+	// All 10 servers should be present in the live snapshot.
+	live := h.cfg.Load()
+	if live == nil || len(live.Servers) != 10 {
+		t.Fatalf("Servers = %+v, want 10", live)
 	}
 
 	// Concurrent list + add of a new server must not race.
@@ -872,7 +888,66 @@ func TestConcurrentControlOps(t *testing.T) {
 	}
 	wg2.Wait()
 
-	if len(cfg.Servers) != 20 {
-		t.Fatalf("Servers = %d, want 20", len(cfg.Servers))
+	live = h.cfg.Load()
+	if live == nil || len(live.Servers) != 20 {
+		t.Fatalf("Servers = %+v, want 20", live)
+	}
+}
+
+// TestConcurrentAddAndGatewayRead exercises concurrent add-server requests on
+// the control handler while the gateway's read paths run. The control plane and
+// gateway used to share one *config.Config that addServer mutated while the
+// gateway read it — a genuine data race. Run with -race.
+func TestConcurrentAddAndGatewayRead(t *testing.T) {
+	cfg := config.Default()
+	mgr := server.NewManager()
+	gw := gateway.New(cfg)
+	h := NewHandler(mgr, gw, cfg)
+	h.configPath = filepath.Join(t.TempDir(), "mcpeach.yml")
+
+	const writers = 8
+	const perWriter = 5
+
+	var addWG, readWG sync.WaitGroup
+	stop := make(chan struct{})
+
+	for i := 0; i < writers; i++ {
+		addWG.Add(1)
+		go func(i int) {
+			defer addWG.Done()
+			for j := 0; j < perWriter; j++ {
+				addServerReq(h, fmt.Sprintf("srv-%d-%d", i, j))
+			}
+		}(i)
+	}
+
+	for i := 0; i < 8; i++ {
+		readWG.Add(1)
+		go func() {
+			defer readWG.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				_ = gw.Tools()
+				_ = gw.GroupTools("g")
+				gw.RegisterTool("a", mcp.Tool{Name: "t1"})
+			}
+		}()
+	}
+
+	addWG.Wait()
+	close(stop)
+	readWG.Wait()
+
+	live := h.cfg.Load()
+	if live == nil {
+		t.Fatal("handler config is nil after adds")
+	}
+	want := writers * perWriter
+	if len(live.Servers) != want {
+		t.Fatalf("live config has %d servers, want %d (lost updates)", len(live.Servers), want)
 	}
 }

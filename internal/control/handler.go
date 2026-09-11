@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mcpeach/mcpeach/internal/config"
@@ -54,7 +55,7 @@ type Handler struct {
 	mu         sync.RWMutex
 	mgr        *server.Manager
 	gw         *gateway.Gateway
-	cfg        *config.Config
+	cfg        atomic.Pointer[config.Config] // immutable snapshot; swapped atomically
 	configPath string
 	log        *obs.Logger
 	res        *secrets.Resolver
@@ -76,7 +77,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // NewHandler builds a control-plane handler. The config is saved to
 // config.Path() when servers are added.
 func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) *Handler {
-	h := &Handler{mgr: mgr, gw: gw, cfg: cfg, configPath: config.Path(), log: obs.Default().With("pkg", "control"), res: secrets.NewResolver(secrets.NewKeyringStore())}
+	h := &Handler{mgr: mgr, gw: gw, configPath: config.Path(), log: obs.Default().With("pkg", "control"), res: secrets.NewResolver(secrets.NewKeyringStore())}
+	h.cfg.Store(cfg)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v0/servers", h.listServers)
 	mux.HandleFunc("POST /v0/servers", h.addServer)
@@ -94,10 +96,9 @@ func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) *H
 func (h *Handler) listServers(w http.ResponseWriter, r *http.Request) {
 	// Report the actual operational state from the manager where known.
 	resp := ListServersResponse{Servers: []ServerInfo{}}
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	if h.cfg != nil {
-		for name := range h.cfg.Servers {
+	cfg := h.cfg.Load()
+	if cfg != nil {
+		for name := range cfg.Servers {
 			state := "stopped"
 			if h.mgr != nil {
 				if s := h.mgr.Server(name); s != nil {
@@ -151,20 +152,21 @@ func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if h.cfg == nil {
+	cfg := h.cfg.Load()
+	if cfg == nil {
 		writeError(w, http.StatusInternalServerError, "config not available")
 		return
 	}
-	if _, exists := h.cfg.Servers[req.Name]; exists {
+	if _, exists := cfg.Servers[req.Name]; exists {
 		writeError(w, http.StatusConflict, "server already exists")
 		return
 	}
 	// Build a candidate copy so a failed save leaves the active config
 	// untouched. The explicit map rebuild keeps mutating candidate.Servers
-	// from affecting h.cfg.Servers.
-	candidate := *h.cfg
-	candidate.Servers = make(map[string]config.ServerConfig, len(h.cfg.Servers)+1)
-	for k, v := range h.cfg.Servers {
+	// from affecting the published snapshot.
+	candidate := *cfg
+	candidate.Servers = make(map[string]config.ServerConfig, len(cfg.Servers)+1)
+	for k, v := range cfg.Servers {
 		candidate.Servers[k] = v
 	}
 	candidate.Servers[req.Name] = config.ServerConfig{
@@ -183,8 +185,16 @@ func (h *Handler) addServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "save config: "+err.Error())
 		return
 	}
-	// Publish only after save succeeds.
-	h.cfg.Servers = candidate.Servers
+	// Publish only after save succeeds. The atomic Store swaps the whole
+	// snapshot, so readers never observe a half-built config. The mutex stays
+	// held across the sequence so two concurrent adds cannot both build from
+	// the same base and lose one update.
+	h.cfg.Store(&candidate)
+	// Keep the gateway's snapshot in step so a server added here can be
+	// started (and its tools registered) without a daemon restart.
+	if h.gw != nil {
+		h.gw.SetConfig(&candidate)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"name": req.Name})
 }
 
@@ -221,9 +231,12 @@ func (h *Handler) processes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]processinfo.Info{}
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for name := range h.cfg.Servers {
+	cfg := h.cfg.Load()
+	if cfg == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"processes": out})
+		return
+	}
+	for name := range cfg.Servers {
 		pid := h.mgr.PID(name)
 		if pid == 0 {
 			continue
@@ -260,11 +273,10 @@ func (h *Handler) startServer(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var sc config.ServerConfig
 	var ok bool
-	h.mu.RLock()
-	if h.cfg != nil {
-		sc, ok = h.cfg.Servers[name]
+	cfg := h.cfg.Load()
+	if cfg != nil {
+		sc, ok = cfg.Servers[name]
 	}
-	h.mu.RUnlock()
 	if !ok {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown server %q", name))
 		return
@@ -339,15 +351,13 @@ func (h *Handler) resolveEnv(env map[string]string) ([]string, error) {
 
 func (h *Handler) stopServer(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	h.mu.RLock()
-	if h.cfg != nil {
-		if _, ok := h.cfg.Servers[name]; !ok {
-			h.mu.RUnlock()
+	cfg := h.cfg.Load()
+	if cfg != nil {
+		if _, ok := cfg.Servers[name]; !ok {
 			writeError(w, http.StatusNotFound, fmt.Sprintf("unknown server %q", name))
 			return
 		}
 	}
-	h.mu.RUnlock()
 	if h.mgr == nil {
 		writeError(w, http.StatusInternalServerError, "manager not available")
 		return

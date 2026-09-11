@@ -98,8 +98,20 @@ func TestAddServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddServer: %v", err)
 	}
-	if _, ok := cfg.Servers["new"]; !ok {
-		t.Error("server 'new' not added to config")
+	// The handler publishes an immutable config snapshot; verify the new
+	// server is visible through the API rather than the stale pointer.
+	servers, err := c.ListServers(context.Background())
+	if err != nil {
+		t.Fatalf("ListServers: %v", err)
+	}
+	found := false
+	for _, s := range servers {
+		if s.Name == "new" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("server 'new' not listed after add")
 	}
 }
 

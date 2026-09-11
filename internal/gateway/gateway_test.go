@@ -309,3 +309,90 @@ func TestGatewayConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestGatewayConcurrentConfigSwap hammers the gateway's read paths while
+// another goroutine swaps the config snapshot. The gateway used to read a
+// *config.Config that the control plane mutated in place; run with -race.
+func TestGatewayConcurrentConfigSwap(t *testing.T) {
+	newCfg := func() *config.Config {
+		return &config.Config{
+			Servers: map[string]config.ServerConfig{
+				"a": {Enabled: true},
+				"b": {Enabled: true},
+			},
+			Groups: map[string]config.GroupConfig{
+				"g": {IncludedServers: []string{"a", "b"}},
+			},
+		}
+	}
+	g := New(newCfg())
+	g.RegisterTool("a", mcp.Tool{Name: "t1"})
+	g.RegisterTool("b", mcp.Tool{Name: "t1"})
+
+	stop := make(chan struct{})
+	var writers, readers sync.WaitGroup
+
+	writers.Add(1)
+	go func() {
+		defer writers.Done()
+		for i := 0; i < 500; i++ {
+			if i%2 == 0 {
+				g.cfg.Store(newCfg())
+			} else {
+				g.SetConfig(newCfg())
+			}
+		}
+	}()
+
+	for i := 0; i < 8; i++ {
+		readers.Add(1)
+		go func() {
+			defer readers.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				g.RegisterTool("a", mcp.Tool{Name: "t1"})
+				g.RegisterTool("b", mcp.Tool{Name: "t2"})
+				_ = g.Tools()
+				_ = g.GroupTools("g")
+			}
+		}()
+	}
+
+	writers.Wait()
+	close(stop)
+	readers.Wait()
+}
+
+func TestSetConfigRebuildsFilters(t *testing.T) {
+	// A server added via SetConfig must get a filter; RegisterTool for it
+	// must not panic on a nil filter (regression for the stale-filters bug).
+	cfg := config.Default()
+	cfg.Servers = map[string]config.ServerConfig{
+		"old": {Command: "echo", Enabled: true},
+	}
+	gw := New(cfg)
+
+	// Publish a config with a new server.
+	cfg2 := config.Default()
+	cfg2.Servers = map[string]config.ServerConfig{
+		"old": {Command: "echo", Enabled: true},
+		"new": {Command: "echo", Enabled: true},
+	}
+	gw.SetConfig(cfg2)
+
+	// RegisterTool for the new server must not panic.
+	gw.RegisterTool("new", mcp.Tool{Name: "echo", Description: "echo"})
+	found := false
+	for _, t := range gw.Tools() {
+		if t.Name == "new__echo" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("tool new__echo not registered after SetConfig")
+	}
+}
