@@ -18,6 +18,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/gateway"
+	"github.com/mcpeach/mcpeach/internal/obs"
 	"github.com/mcpeach/mcpeach/internal/secrets"
 	"github.com/mcpeach/mcpeach/internal/server"
 	"github.com/mcpeach/mcpeach/internal/testutil"
@@ -173,6 +174,7 @@ func (failingCaller) CallTool(context.Context, mcp.CallToolRequest) (*mcp.CallTo
 // TestLogsEndpointSeesGatewayLogs verifies the control plane and the gateway
 // share one obs ring, so gateway-side logs reach /v0/logs.
 func TestLogsEndpointSeesGatewayLogs(t *testing.T) {
+	obs.ResetDefaultForTest()
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{"fake": {Enabled: true}},
 	}
@@ -180,8 +182,11 @@ func TestLogsEndpointSeesGatewayLogs(t *testing.T) {
 	gw := gateway.New(cfg)
 	gw.RegisterClient("fake", failingCaller{})
 
-	// A failed tool call is logged by the gateway's own logger.
-	if _, err := gw.CallTool(context.Background(), mcp.CallToolRequest{
+	// A failed tool call is logged by the gateway's own logger. Bound the
+	// call so a hung component cannot hang the test suite.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := gw.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Name: "fake__echo"},
 	}); err == nil {
 		t.Fatal("CallTool: want error, got nil")

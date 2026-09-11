@@ -45,6 +45,13 @@ func Default() *Logger {
 	return defaultLogger
 }
 
+// ResetDefaultForTest clears the singleton so tests get an isolated logger.
+// It must only be called from tests; production code never resets the logger.
+func ResetDefaultForTest() {
+	defaultOnce = sync.Once{}
+	defaultLogger = nil
+}
+
 // With returns a child logger with the given key-value pairs attached.
 func (l *Logger) With(args ...any) *Logger {
 	return &Logger{Logger: l.Logger.With(args...), ring: l.ring}
