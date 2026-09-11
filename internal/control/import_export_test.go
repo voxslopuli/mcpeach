@@ -223,3 +223,13 @@ func TestExportPlaintextUnresolvableEnv(t *testing.T) {
 		t.Fatalf("status = %d, want 400 for unresolvable env", rec.Code)
 	}
 }
+
+func TestImportMalformedBody(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	h, _ := newSecretsHandler(t)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v0/import", bytes.NewBufferString("{not json")))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
