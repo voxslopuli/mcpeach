@@ -40,8 +40,12 @@ type Gateway struct {
 	log     *obs.Logger                   // structured logging
 }
 
-// New builds a Gateway from config.
+// New builds a Gateway from config. It panics if cfg is nil; internal callers
+// always pass a loaded config, so a nil config is a programming error.
 func New(cfg *config.Config) *Gateway {
+	if cfg == nil {
+		panic("gateway: nil config")
+	}
 	filters := make(map[string]permission.Filter, len(cfg.Servers))
 	for name, s := range cfg.Servers {
 		filters[name] = permission.FromConfig(s.Tools)

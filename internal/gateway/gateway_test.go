@@ -396,3 +396,12 @@ func TestSetConfigRebuildsFilters(t *testing.T) {
 		t.Error("tool new__echo not registered after SetConfig")
 	}
 }
+
+func TestNewNilConfigPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("New(nil): want panic, got nil")
+		}
+	}()
+	New(nil)
+}
