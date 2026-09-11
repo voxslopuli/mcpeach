@@ -776,6 +776,67 @@ func TestServeUnixSocket(t *testing.T) {
 	}
 }
 
+func TestServeRefusesWhenDaemonLive(t *testing.T) {
+	// Short path: t.TempDir() can exceed the ~108-byte unix socket limit.
+	dir := filepath.Join(os.TempDir(), "mcpeach-sock-live-test")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "mcpeach.sock")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	first := NewServer(sock, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	if err := first.Start(ctx); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+
+	// A second daemon must refuse to start while the first is live, and must
+	// not unlink the first daemon's socket.
+	second := NewServer(sock, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	if err := second.Start(ctx); err == nil {
+		t.Fatal("second Start: want error (daemon already running), got nil")
+	}
+	if _, err := os.Stat(sock); err != nil {
+		t.Errorf("socket removed by refused second Start: %v", err)
+	}
+}
+
+func TestServeRemovesStaleSocket(t *testing.T) {
+	// Short path: t.TempDir() can exceed the ~108-byte unix socket limit.
+	dir := filepath.Join(os.TempDir(), "mcpeach-sock-stale-test")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "mcpeach.sock")
+
+	// A plain file at the socket path stands in for a stale socket: nothing
+	// is listening, so Start must remove it and bind a fresh listener.
+	f, err := os.Create(sock)
+	if err != nil {
+		t.Fatalf("Create stale socket: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close stale socket: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	srv := NewServer(sock, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	if err := srv.Start(ctx); err != nil {
+		t.Fatalf("Start over stale socket: %v", err)
+	}
+	info, err := os.Stat(sock)
+	if err != nil {
+		t.Fatalf("stat socket: %v", err)
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		t.Errorf("socket mode = %v, want a socket", info.Mode())
+	}
+}
+
 func TestServerStartCreatesPrivateSocketDir(t *testing.T) {
 	// Use a short path: t.TempDir() paths can exceed the ~108-byte unix
 	// socket limit, which makes net.Listen fail with "bind: invalid argument".
