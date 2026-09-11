@@ -21,24 +21,9 @@ func (h *Handler) importServer(w http.ResponseWriter, r *http.Request) {
 		ConflictsPolicy string `json:"conflicts_policy"` // review|keep|replace
 		SecretsPolicy   string `json:"secrets_policy"`   // keep|keychain
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if !decodeImportRequest(w, r, &req) {
 		return
 	}
-	if req.Path == "" {
-		writeError(w, http.StatusBadRequest, "path is required")
-		return
-	}
-	switch req.ConflictsPolicy {
-	case "", "review", "keep", "replace":
-	default:
-		writeError(w, http.StatusBadRequest, "conflicts_policy must be review, keep or replace")
-		return
-	}
-	if req.SecretsPolicy == "" {
-		req.SecretsPolicy = "keychain" // safe default
-	}
-
 	cfg := h.cfg.Load()
 	if cfg == nil {
 		writeError(w, http.StatusInternalServerError, "config not available")
@@ -71,6 +56,33 @@ func (h *Handler) importServer(w http.ResponseWriter, r *http.Request) {
 		"conflicts": conflicts,
 		"migrated":  migrated,
 	})
+}
+
+// decodeImportRequest decodes and validates an import request body, writing an
+// error response and returning false on failure.
+func decodeImportRequest(w http.ResponseWriter, r *http.Request, req *struct {
+	Path            string `json:"path"`
+	ConflictsPolicy string `json:"conflicts_policy"`
+	SecretsPolicy   string `json:"secrets_policy"`
+}) bool {
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return false
+	}
+	if req.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return false
+	}
+	switch req.ConflictsPolicy {
+	case "", "review", "keep", "replace":
+	default:
+		writeError(w, http.StatusBadRequest, "conflicts_policy must be review, keep or replace")
+		return false
+	}
+	if req.SecretsPolicy == "" {
+		req.SecretsPolicy = "keychain" // safe default
+	}
+	return true
 }
 
 // applyConflictPolicy keeps or replaces existing servers per the policy.
