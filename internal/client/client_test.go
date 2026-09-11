@@ -393,7 +393,7 @@ func TestImportExportClient(t *testing.T) {
 	if err := c.Export(context.Background(), dst, "references", false); err != nil {
 		t.Fatalf("Export: %v", err)
 	}
-	b, _ := os.ReadFile(dst)
+	b, _ := os.ReadFile(dst) // nosemgrep go_filesystem_rule-fileread
 	if !strings.Contains(string(b), `"new"`) {
 		t.Errorf("export missing server: %s", b)
 	}

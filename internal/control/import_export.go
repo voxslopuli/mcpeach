@@ -49,40 +49,12 @@ func (h *Handler) importServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "import: "+err.Error())
 		return
 	}
-
-	// Apply the conflict policy.
-	if req.ConflictsPolicy == "keep" || req.ConflictsPolicy == "review" {
-		// "review" means: return conflicts and let the client decide; until
-		// then, preserve existing servers (do not overwrite).
-		for _, name := range conflicts {
-			delete(candidate.Servers, name)
-			candidate.Servers[name] = cfg.Servers[name]
-		}
+	applyConflictPolicy(candidate, cfg, conflicts, req.ConflictsPolicy)
+	migrated, err := h.migratePlaintextSecrets(candidate, req.SecretsPolicy)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "store secret: "+err.Error())
+		return
 	}
-
-	// Migrate likely plaintext secrets to keychain references.
-	var migrated []mcpconfig.SecretRef
-	if req.SecretsPolicy == "keychain" {
-		for name, sc := range candidate.Servers {
-			for k, v := range sc.Env {
-				if strings.HasPrefix(v, "env:") || strings.HasPrefix(v, "keychain:") {
-					continue
-				}
-				if !looksLikeSecretName(k) {
-					continue
-				}
-				ref := "keychain:mcpeach/" + name + "/" + k
-				if err := h.res.Store(ref, v); err != nil {
-					writeError(w, http.StatusInternalServerError, "store secret: "+err.Error())
-					return
-				}
-				sc.Env[k] = ref
-				migrated = append(migrated, mcpconfig.SecretRef{Server: name, Name: k})
-			}
-			candidate.Servers[name] = sc
-		}
-	}
-
 	if err := candidate.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -99,6 +71,46 @@ func (h *Handler) importServer(w http.ResponseWriter, r *http.Request) {
 		"conflicts": conflicts,
 		"migrated":  migrated,
 	})
+}
+
+// applyConflictPolicy keeps or replaces existing servers per the policy.
+// "review" returns conflicts and preserves existing servers until the client
+// decides; "keep" never overwrites; "replace" uses the imported values.
+func applyConflictPolicy(candidate, base *config.Config, conflicts []string, policy string) {
+	if policy != "keep" && policy != "review" {
+		return
+	}
+	for _, name := range conflicts {
+		delete(candidate.Servers, name)
+		candidate.Servers[name] = base.Servers[name]
+	}
+}
+
+// migratePlaintextSecrets rewrites likely plaintext secret env values into
+// keychain references when the policy is "keychain". Returns the migrations.
+func (h *Handler) migratePlaintextSecrets(candidate *config.Config, policy string) ([]mcpconfig.SecretRef, error) {
+	if policy != "keychain" {
+		return nil, nil
+	}
+	var migrated []mcpconfig.SecretRef
+	for name, sc := range candidate.Servers {
+		for k, v := range sc.Env {
+			if strings.HasPrefix(v, "env:") || strings.HasPrefix(v, "keychain:") {
+				continue
+			}
+			if !looksLikeSecretName(k) {
+				continue
+			}
+			ref := "keychain:mcpeach/" + name + "/" + k
+			if err := h.res.Store(ref, v); err != nil {
+				return nil, err
+			}
+			sc.Env[k] = ref
+			migrated = append(migrated, mcpconfig.SecretRef{Server: name, Name: k})
+		}
+		candidate.Servers[name] = sc
+	}
+	return migrated, nil
 }
 
 // exportServer handles POST /v0/export: write the config to a Claude Code MCP
@@ -132,32 +144,38 @@ func (h *Handler) exportServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "config not available")
 		return
 	}
-
-	// Resolve plaintext requires a config with resolved values; build a copy.
-	exportCfg := cfg
 	if req.Secrets == "plaintext" {
-		resolved := *cfg
-		resolved.Servers = make(map[string]config.ServerConfig, len(cfg.Servers))
-		for name, sc := range cfg.Servers {
-			sc = copyServerConfig(sc)
-			for k, v := range sc.Env {
-				rv, err := h.res.Resolve(v)
-				if err != nil {
-					writeError(w, http.StatusBadRequest, fmt.Sprintf("%s/%s: %v", name, k, err))
-					return
-				}
-				sc.Env[k] = rv
-			}
-			resolved.Servers[name] = sc
+		resolved, err := h.resolveForExport(cfg)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
 		}
-		exportCfg = &resolved
+		cfg = resolved
 	}
-
-	if err := mcpconfig.Export(req.Path, exportCfg); err != nil {
+	if err := mcpconfig.Export(req.Path, cfg); err != nil {
 		writeError(w, http.StatusInternalServerError, "export: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"exported": true, "secrets": req.Secrets})
+}
+
+// resolveForExport returns a copy of cfg with all env values resolved to
+// plaintext, used only when the caller explicitly opts into plaintext export.
+func (h *Handler) resolveForExport(cfg *config.Config) (*config.Config, error) {
+	resolved := *cfg
+	resolved.Servers = make(map[string]config.ServerConfig, len(cfg.Servers))
+	for name, sc := range cfg.Servers {
+		sc = copyServerConfig(sc)
+		for k, v := range sc.Env {
+			rv, err := h.res.Resolve(v)
+			if err != nil {
+				return nil, fmt.Errorf("%s/%s: %v", name, k, err)
+			}
+			sc.Env[k] = rv
+		}
+		resolved.Servers[name] = sc
+	}
+	return &resolved, nil
 }
 
 // looksLikeSecretName reports whether an env name is likely a secret.

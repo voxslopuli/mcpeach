@@ -125,7 +125,7 @@ func TestExportServer(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
-	b, err := os.ReadFile(dst)
+	b, err := os.ReadFile(dst) // nosemgrep go_filesystem_rule-fileread
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestExportPlaintextRequiresFlag(t *testing.T) {
 	if rec2.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec2.Code, rec2.Body.String())
 	}
-	b, _ := os.ReadFile(dst)
+	b, _ := os.ReadFile(dst) // nosemgrep go_filesystem_rule-fileread
 	if !strings.Contains(string(b), "supersecret") {
 		t.Errorf("plaintext export missing resolved value: %s", b)
 	}
@@ -189,5 +189,37 @@ func TestPreview(t *testing.T) {
 	}
 	if len(secrets) != 1 || secrets[0].Server != "new" || secrets[0].Name != "API_KEY" {
 		t.Errorf("secrets = %+v", secrets)
+	}
+}
+
+func TestImportInvalidPolicy(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	h, _ := newSecretsHandler(t)
+	src := writeClaudeConfig(t, map[string]map[string]any{"new": {"command": "npx"}})
+	body, _ := json.Marshal(map[string]string{"path": src, "conflicts_policy": "bogus"})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v0/import", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestExportPlaintextUnresolvableEnv(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	h, _ := newSecretsHandler(t)
+	// newSecretsHandler sets GITHUB_TOKEN to env:MCPEACH_TEST_UNSET_XYZ (unset),
+	// so plaintext export must fail.
+	cfg := h.cfg.Load()
+	sc := cfg.Servers["github"]
+	sc.Env = map[string]string{"GITHUB_TOKEN": "env:MCPEACH_TEST_UNSET_XYZ"}
+	cfg.Servers["github"] = sc
+	h.cfg.Store(cfg)
+
+	dst := filepath.Join(t.TempDir(), "out.json")
+	body, _ := json.Marshal(map[string]any{"path": dst, "secrets": "plaintext", "allow_plaintext": true})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v0/export", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for unresolvable env", rec.Code)
 	}
 }
