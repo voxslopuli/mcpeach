@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
@@ -93,7 +94,11 @@ func (m *Model) submitAddServer(f *addServerForm) tea.Cmd {
 		}
 		var args []string
 		if f.args != "" {
-			args = splitArgs(f.args)
+			parsed, err := splitArgs(f.args)
+			if err != nil {
+				return addServerDoneMsg{err: err}
+			}
+			args = parsed
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -127,26 +132,37 @@ func validateAddServer(f *addServerForm) error {
 	return nil
 }
 
-// splitArgs splits a space-separated string into args, respecting quotes.
-func splitArgs(s string) []string {
+// splitArgs splits s into arguments on unicode whitespace (spaces, tabs,
+// newlines) outside quotes. Supported quoting is deliberately minimal: a
+// double-quoted span groups whitespace into one argument and the quotes are
+// stripped; adjacent quotes concatenate ("a""b" -> ab). Single quotes and
+// escape sequences are not special. An unterminated double quote is an error.
+func splitArgs(s string) ([]string, error) {
 	var out []string
 	var cur strings.Builder
 	inQuote := false
+	started := false // cur holds an argument, possibly empty (e.g. "")
 	for _, r := range s {
 		switch {
 		case r == '"':
 			inQuote = !inQuote
-		case r == ' ' && !inQuote:
-			if cur.Len() > 0 {
+			started = true
+		case unicode.IsSpace(r) && !inQuote:
+			if started {
 				out = append(out, cur.String())
 				cur.Reset()
+				started = false
 			}
 		default:
 			cur.WriteRune(r)
+			started = true
 		}
 	}
-	if cur.Len() > 0 {
+	if inQuote {
+		return nil, errors.New("unclosed quote in args")
+	}
+	if started {
 		out = append(out, cur.String())
 	}
-	return out
+	return out, nil
 }

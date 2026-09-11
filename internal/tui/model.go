@@ -52,6 +52,7 @@ type loadServersMsg struct{}
 // serversLoadedMsg carries the result of a ListServers call.
 type serversLoadedMsg struct {
 	servers []client.ServerInfo
+	err     error
 }
 
 // serverActionMsg is sent after a start/stop completes.
@@ -60,14 +61,21 @@ type serverActionMsg struct {
 	err  error
 }
 
-// logsLoadedMsg carries the result of a ServerLogs call.
+// logsLoadedMsg carries the result of a ServerLogs call. name identifies the
+// server the lines belong to so a slow response for a previously selected
+// server can be dropped instead of overwriting the current server's logs.
 type logsLoadedMsg struct {
+	name  string
 	lines []string
+	err   error
 }
 
-// toolsLoadedMsg carries the result of a ListTools call.
+// toolsLoadedMsg carries the result of a ListTools call. name is the server
+// selected when the request was issued, used to drop stale responses.
 type toolsLoadedMsg struct {
+	name  string
 	tools []string
+	err   error
 }
 
 // addServerDoneMsg is sent after an add-server form submits.
@@ -81,28 +89,38 @@ type addServerDoneMsg struct {
 func (m *Model) loadLogsCmd(name string) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
-			return logsLoadedMsg{}
+			return logsLoadedMsg{name: name}
 		}
 		lines, err := m.client.ServerLogs(context.Background(), name)
 		if err != nil {
-			return logsLoadedMsg{}
+			return logsLoadedMsg{name: name, err: err}
 		}
-		return logsLoadedMsg{lines: lines}
+		return logsLoadedMsg{name: name, lines: lines}
 	}
 }
 
 // loadToolsCmd returns a tea.Cmd that fetches the aggregated tool list.
 func (m *Model) loadToolsCmd() tea.Cmd {
+	name := m.selectedServerName()
 	return func() tea.Msg {
 		if m.client == nil {
-			return toolsLoadedMsg{}
+			return toolsLoadedMsg{name: name}
 		}
 		tools, err := m.client.ListTools(context.Background())
 		if err != nil {
-			return toolsLoadedMsg{}
+			return toolsLoadedMsg{name: name, err: err}
 		}
-		return toolsLoadedMsg{tools: tools}
+		return toolsLoadedMsg{name: name, tools: tools}
 	}
+}
+
+// selectedServerName returns the name of the currently selected server, or ""
+// when the list is empty.
+func (m *Model) selectedServerName() string {
+	if len(m.servers) == 0 || m.selected < 0 || m.selected >= len(m.servers) {
+		return ""
+	}
+	return m.servers[m.selected].Name
 }
 
 // loadServersCmd returns a tea.Cmd that fetches the server list asynchronously.
@@ -113,7 +131,7 @@ func (m *Model) loadServersCmd() tea.Cmd {
 		}
 		servers, err := m.client.ListServers(context.Background())
 		if err != nil {
-			return serversLoadedMsg{}
+			return serversLoadedMsg{err: err}
 		}
 		return serversLoadedMsg{servers: servers}
 	}
@@ -148,9 +166,22 @@ func (m *Model) loadServers() {
 	}
 	servers, err := m.client.ListServers(context.Background())
 	if err != nil {
+		m.err = err.Error()
 		return
 	}
 	m.servers = servers
+	m.clampSelection()
+}
+
+// clampSelection keeps m.selected within the bounds of the current server
+// list. A refresh that shrinks the list would otherwise leave it out of range.
+func (m *Model) clampSelection() {
+	if m.selected >= len(m.servers) {
+		m.selected = len(m.servers) - 1
+	}
+	if m.selected < 0 {
+		m.selected = 0
+	}
 }
 
 // selectNext moves the selection down.
@@ -193,7 +224,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case loadServersMsg:
 		return m, m.loadServersCmd()
 	case serversLoadedMsg:
+		if msg.err != nil {
+			m.err = msg.err.Error()
+			return m, nil
+		}
+		m.err = ""
 		m.servers = msg.servers
+		m.clampSelection()
 		return m, nil
 	case serverActionMsg:
 		// After a start/stop, refresh the server list. Surface any error.
@@ -202,9 +239,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.loadServersCmd()
 	case logsLoadedMsg:
+		if msg.err != nil {
+			m.err = msg.err.Error()
+			return m, nil
+		}
+		// Drop a response for a server that is no longer selected.
+		if msg.name != m.selectedServerName() {
+			return m, nil
+		}
+		m.err = ""
 		m.logLines = msg.lines
 		return m, nil
 	case toolsLoadedMsg:
+		if msg.err != nil {
+			m.err = msg.err.Error()
+			return m, nil
+		}
+		// Drop a stale response only when the request named a server that is no
+		// longer selected; an unnamed request (empty list) is never stale.
+		if msg.name != "" && msg.name != m.selectedServerName() {
+			return m, nil
+		}
+		m.err = ""
 		m.tools = msg.tools
 		return m, nil
 	case addServerDoneMsg:
@@ -282,6 +338,9 @@ func (m *Model) View() tea.View {
 		for _, line := range m.logLines {
 			b.WriteString(line + "\n")
 		}
+		if m.err != "" {
+			b.WriteString("\n" + theme.Error.Render(m.err) + "\n")
+		}
 		b.WriteString("\n" + theme.Help.Render("l toggle logs · esc/q back") + "\n")
 		return tea.NewView(b.String())
 	}
@@ -290,6 +349,9 @@ func (m *Model) View() tea.View {
 		b.WriteString(theme.Header.Render("Tools") + "\n\n")
 		for _, tool := range m.tools {
 			b.WriteString(tool + "\n")
+		}
+		if m.err != "" {
+			b.WriteString("\n" + theme.Error.Render(m.err) + "\n")
 		}
 		b.WriteString("\n" + theme.Help.Render("t toggle tools · esc/q back") + "\n")
 		return tea.NewView(b.String())
