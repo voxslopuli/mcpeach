@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -376,27 +377,50 @@ func TestModelToggleAddForm(t *testing.T) {
 	}
 }
 
-func TestSplitArgs(t *testing.T) {
-	tests := []struct {
-		in   string
-		want []string
-	}{
-		{"", nil},
-		{"a b c", []string{"a", "b", "c"}},
-		{"a \"b c\" d", []string{"a", "b c", "d"}},
-		{"single", []string{"single"}},
+func TestStaleLogsResponseIgnored(t *testing.T) {
+	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a"}, {Name: "b"}}}
+	m := NewModel(fc)
+	m.loadServers()
+	m.showLogs = true
+	m.logLines = []string{"a-line"}
+
+	// A response for server "b" while "a" is selected must be dropped.
+	m.Update(logsLoadedMsg{name: "b", lines: []string{"b-line"}})
+	if len(m.logLines) != 1 || m.logLines[0] != "a-line" {
+		t.Errorf("logLines = %v, want [a-line] (stale response ignored)", m.logLines)
 	}
-	for _, tt := range tests {
-		got := splitArgs(tt.in)
-		if len(got) != len(tt.want) {
-			t.Errorf("splitArgs(%q) = %v, want %v", tt.in, got, tt.want)
-			continue
-		}
-		for i := range got {
-			if got[i] != tt.want[i] {
-				t.Errorf("splitArgs(%q)[%d] = %q, want %q", tt.in, i, got[i], tt.want[i])
-			}
-		}
+
+	// A response for the selected server is applied.
+	m.Update(logsLoadedMsg{name: "a", lines: []string{"fresh"}})
+	if len(m.logLines) != 1 || m.logLines[0] != "fresh" {
+		t.Errorf("logLines = %v, want [fresh]", m.logLines)
+	}
+}
+
+func TestSelectionClampedOnShrink(t *testing.T) {
+	fc := &fakeClient{servers: []client.ServerInfo{
+		{Name: "a"}, {Name: "b"}, {Name: "c"}, {Name: "d"}, {Name: "e"},
+	}}
+	m := NewModel(fc)
+	m.loadServers()
+	m.selected = 4
+
+	// Refresh returns fewer servers; selection must be clamped, not panic.
+	updated, _ := m.Update(serversLoadedMsg{servers: []client.ServerInfo{{Name: "a"}, {Name: "b"}}})
+	got := updated.(*Model)
+	if got.selected != 1 {
+		t.Errorf("selected = %d, want 1", got.selected)
+	}
+	// Accessing the selected server must not panic.
+	_ = got.servers[got.selected]
+}
+
+func TestLoadErrorSurfaced(t *testing.T) {
+	m := NewModel(&fakeClient{})
+	updated, _ := m.Update(serversLoadedMsg{err: errors.New("daemon unreachable")})
+	got := updated.(*Model)
+	if !strings.Contains(got.View().Content, "daemon unreachable") {
+		t.Errorf("View does not surface load error: %q", got.View().Content)
 	}
 }
 
@@ -446,4 +470,21 @@ func (e *errClient) StopServer(ctx context.Context, name string) error {
 }
 func (e *errClient) AddServer(ctx context.Context, req client.AddServerRequest) error {
 	return fmt.Errorf("boom")
+}
+
+func TestLoadCommandsSurfaceErrors(t *testing.T) {
+	m := NewModel(&errClient{})
+	m.servers = []client.ServerInfo{{Name: "srv"}}
+	m.selected = 0
+
+	// Each load command must return a msg carrying the error.
+	if msg := m.loadServersCmd()(); !strings.Contains(msg.(serversLoadedMsg).err.Error(), "boom") {
+		t.Errorf("loadServersCmd err = %v, want boom", msg.(serversLoadedMsg).err)
+	}
+	if msg := m.loadLogsCmd("srv")(); !strings.Contains(msg.(logsLoadedMsg).err.Error(), "boom") {
+		t.Errorf("loadLogsCmd err = %v, want boom", msg.(logsLoadedMsg).err)
+	}
+	if msg := m.loadToolsCmd()(); !strings.Contains(msg.(toolsLoadedMsg).err.Error(), "boom") {
+		t.Errorf("loadToolsCmd err = %v, want boom", msg.(toolsLoadedMsg).err)
+	}
 }

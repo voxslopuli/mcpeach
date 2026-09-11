@@ -106,3 +106,50 @@ func TestValidateServerName(t *testing.T) {
 		})
 	}
 }
+
+func TestSplitArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      string
+		want    []string
+		wantErr bool
+	}{
+		{"empty", "", nil, false},
+		{"simple", "a b c", []string{"a", "b", "c"}, false},
+		{"whitespace", "a\tb\nc", []string{"a", "b", "c"}, false},
+		{"quoted", `"a b" c`, []string{"a b", "c"}, false},
+		{"adjacent quotes", `a""b`, []string{"ab"}, false},
+		{"unclosed quote", `"unclosed`, nil, true},
+		{"cjk and emoji", "日本語 🍑 arg", []string{"日本語", "🍑", "arg"}, false},
+		{"quoted cjk", `"日本 語"`, []string{"日本 語"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := splitArgs(tt.in)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("splitArgs(%q) = %v, want error", tt.in, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("splitArgs(%q) unexpected error: %v", tt.in, err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("splitArgs(%q) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSubmitAddServerUnclosedQuote(t *testing.T) {
+	m := NewModel(&fakeClient{})
+	msg := m.submitAddServer(&addServerForm{name: "srv", command: "echo", args: `"oops`})()
+	done, ok := msg.(addServerDoneMsg)
+	if !ok {
+		t.Fatalf("got %T, want addServerDoneMsg", msg)
+	}
+	if done.err == nil {
+		t.Error("unclosed quote: want submission error, got nil")
+	}
+}
