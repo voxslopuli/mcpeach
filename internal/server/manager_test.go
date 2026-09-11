@@ -83,17 +83,20 @@ func TestManagerCapturesOutput(t *testing.T) {
 	}
 	defer func() { _ = m.Stop("fake") }()
 
-	// Give the fake server time to emit a log line.
-	deadline := time.Now().Add(2 * time.Second)
+	// The fake server emits a startup line on stderr; the capture goroutine
+	// drains it asynchronously, so poll until that exact sentinel appears
+	// rather than assuming it has landed by the first read.
+	const sentinel = "fake-mcp started"
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(m.Logs("fake")) > 0 {
-			break
+		for _, line := range m.Logs("fake") {
+			if strings.Contains(line, sentinel) {
+				return
+			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if len(m.Logs("fake")) == 0 {
-		t.Fatal("expected captured log output, got none")
-	}
+	t.Fatalf("expected captured log output containing %q, got none", sentinel)
 }
 
 func TestManagerCaptureLogs(t *testing.T) {

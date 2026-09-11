@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mcpeach/mcpeach/internal/config"
 	"github.com/mcpeach/mcpeach/internal/gateway"
+	"github.com/mcpeach/mcpeach/internal/obs"
 	"github.com/mcpeach/mcpeach/internal/secrets"
 	"github.com/mcpeach/mcpeach/internal/server"
 	"github.com/mcpeach/mcpeach/internal/testutil"
@@ -159,6 +161,56 @@ func TestLogs(t *testing.T) {
 	}
 	// An empty log buffer is valid; just verify the endpoint responds.
 	_ = resp.Lines
+}
+
+// failingCaller is a gateway.ToolCaller that always errors, so the gateway
+// logs a tool-call failure through its own logger.
+type failingCaller struct{}
+
+func (failingCaller) CallTool(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return nil, errors.New("upstream boom")
+}
+
+// TestLogsEndpointSeesGatewayLogs verifies the control plane and the gateway
+// share one obs ring, so gateway-side logs reach /v0/logs.
+func TestLogsEndpointSeesGatewayLogs(t *testing.T) {
+	obs.ResetDefaultForTest()
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{"fake": {Enabled: true}},
+	}
+	mgr := server.NewManager()
+	gw := gateway.New(cfg)
+	gw.RegisterClient("fake", failingCaller{})
+
+	// A failed tool call is logged by the gateway's own logger. Bound the
+	// call so a hung component cannot hang the test suite.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := gw.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Name: "fake__echo"},
+	}); err == nil {
+		t.Fatal("CallTool: want error, got nil")
+	}
+
+	h := NewHandler(mgr, gw, cfg)
+	req := httptest.NewRequest(http.MethodGet, "/v0/logs", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var resp struct {
+		Lines []string `json:"lines"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, line := range resp.Lines {
+		if strings.Contains(line, "tool call failed") {
+			return
+		}
+	}
+	t.Fatalf("gateway log not visible via /v0/logs; lines = %v", resp.Lines)
 }
 
 func TestServerLogs(t *testing.T) {
