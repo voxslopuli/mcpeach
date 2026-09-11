@@ -14,18 +14,7 @@ func TestLifecycleStartStop(t *testing.T) {
 	// enabled: true so the daemon auto-starts the server and registers its
 	// tools (a disabled server's tools are not exposed even when manually
 	// started).
-	fx.WriteConfig(map[string]map[string]any{
-		"fake": {
-			"command": fake,
-			"enabled": true,
-		},
-	})
-	d := harness.StartDaemon(t, binPath, fx.Root, fx.Env())
-	defer d.Stop()
-
-	s := harness.NewSession(t, "lifecycle", binPath, nil, fx.Env(), 80, 24)
-	defer s.Close()
-	harness.CollectArtifacts(t, s, d)
+	d, s := fx.Setup(t, binPath, harness.FakeServerConfig(fake), "lifecycle", 80, 24)
 
 	// The server auto-starts running and its tool is registered.
 	s.ExpectServerRunning()
@@ -50,15 +39,9 @@ func TestLifecycleEnterDoesNotStart(t *testing.T) {
 	fx := harness.NewFixture(t)
 	fake := harness.BuildFakeMCP(t)
 	// enabled: false so the server starts stopped; Enter must not start it.
-	fx.WriteConfig(map[string]map[string]any{
+	_, s := fx.Setup(t, binPath, map[string]map[string]any{
 		"fake": {"command": fake, "enabled": false},
-	})
-	d := harness.StartDaemon(t, binPath, fx.Root, fx.Env())
-	defer d.Stop()
-
-	s := harness.NewSession(t, "enter", binPath, nil, fx.Env(), 80, 24)
-	defer s.Close()
-	harness.CollectArtifacts(t, s, d)
+	}, "enter", 80, 24)
 
 	s.Expect("fake")
 	s.Expect("stopped")
