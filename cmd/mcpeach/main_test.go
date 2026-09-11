@@ -686,12 +686,14 @@ func buildMcpeachBinary(t *testing.T) string {
 // t.TempDir() paths on macOS do not.
 func shortXDGDir(t *testing.T, name string) string {
 	t.Helper()
-	dir := filepath.Join(os.TempDir(), name)
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatalf("remove %s: %v", dir, err)
+	// MkdirTemp keeps the name unique so parallel test runs cannot collide;
+	// the short prefix keeps the unix socket path under the ~108-byte limit.
+	dir, err := os.MkdirTemp(os.TempDir(), name)
+	if err != nil {
+		t.Fatalf("mkdir %s: %v", name, err)
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatalf("mkdir %s: %v", dir, err)
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod %s: %v", dir, err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir
