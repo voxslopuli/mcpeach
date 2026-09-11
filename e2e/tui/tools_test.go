@@ -36,10 +36,10 @@ func TestToolsReflectStop(t *testing.T) {
 	harness.CollectArtifacts(t, s, d)
 
 	s.ExpectServerRunning()
-	harness.AssertAPI(t, d, "GET", "/v0/tools", "", 200, "fake__echo")
+	harness.AssertToolRegistered(t, d)
 
 	// Stop via the API and verify the tool disappears.
 	d.API("POST", "/v0/servers/fake/stop", "")
-	harness.AssertAPI(t, d, "GET", "/v0/tools", "", 200)
+	harness.AssertNoTools(t, d)
 	harness.AssertProcessGone(t, fake)
 }

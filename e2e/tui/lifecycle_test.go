@@ -29,19 +29,19 @@ func TestLifecycleStartStop(t *testing.T) {
 
 	// The server auto-starts running and its tool is registered.
 	s.ExpectServerRunning()
-	harness.AssertAPI(t, d, "GET", "/v0/tools", "", 200, "fake__echo")
+	harness.AssertToolRegistered(t, d)
 
 	// Space stops it (state-aware toggle).
 	s.Key("space")
 	s.Expect("stopped")
 	harness.AssertProcessGone(t, fake)
-	harness.AssertAPI(t, d, "GET", "/v0/tools", "", 200)
+	harness.AssertNoTools(t, d)
 
 	// Space starts it again.
 	s.Key("space")
 	s.Expect("running")
 	harness.AssertProcessAlive(t, fake)
-	harness.AssertAPI(t, d, "GET", "/v0/tools", "", 200, "fake__echo")
+	harness.AssertToolRegistered(t, d)
 }
 
 // TestLifecycleEnterDoesNotStart verifies Enter opens the management screen

@@ -32,6 +32,18 @@ func AssertNoSecret(t *testing.T, haystack string, secrets ...string) {
 	}
 }
 
+// AssertToolRegistered asserts the fake server's echo tool is exposed.
+func AssertToolRegistered(t *testing.T, d *Daemon) {
+	t.Helper()
+	AssertAPI(t, d, "GET", "/v0/tools", "", 200, "fake__echo")
+}
+
+// AssertNoTools asserts no tools are exposed (server stopped).
+func AssertNoTools(t *testing.T, d *Daemon) {
+	t.Helper()
+	AssertAPI(t, d, "GET", "/v0/tools", "", 200)
+}
+
 // JSONBody decodes a JSON response body into out.
 func JSONBody(t *testing.T, body string, out any) {
 	t.Helper()
