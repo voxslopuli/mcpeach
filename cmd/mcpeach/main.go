@@ -92,7 +92,7 @@ func runDaemon(ctx context.Context) error {
 	}
 
 	mgr := server.NewManager()
-	res := secrets.NewResolver(secrets.NewKeyringStore())
+	res := secrets.NewResolver(secrets.NewStoreFromEnv())
 	gw := gateway.New(cfg)
 	// All upstream clients (stdio + remote, including any added via the
 	// control plane) are closed on daemon shutdown so a partial startup

@@ -47,6 +47,47 @@ func (k *KeyringStore) Delete(service, user string) error {
 	return keyring.Delete(service, user)
 }
 
+// MemoryStore is an in-memory Store used for tests and the E2E suite (so no
+// test touches the real OS keychain).
+type MemoryStore struct {
+	values map[string]string
+}
+
+// NewMemoryStore returns an empty in-memory Store.
+func NewMemoryStore() *MemoryStore {
+	return &MemoryStore{values: map[string]string{}}
+}
+
+// Get fetches a secret from the in-memory map.
+func (m *MemoryStore) Get(service, user string) (string, error) {
+	if v, ok := m.values[service+"/"+user]; ok {
+		return v, nil
+	}
+	return "", ErrNotFound
+}
+
+// Set stores a secret in the in-memory map.
+func (m *MemoryStore) Set(service, user, secret string) error {
+	m.values[service+"/"+user] = secret
+	return nil
+}
+
+// Delete removes a secret from the in-memory map.
+func (m *MemoryStore) Delete(service, user string) error {
+	delete(m.values, service+"/"+user)
+	return nil
+}
+
+// NewStoreFromEnv returns a Store selected by the MCPEACH_KEYCHAIN_STORE env
+// var: "memory" uses an in-memory store (for tests/E2E), anything else uses
+// the OS keychain.
+func NewStoreFromEnv() Store {
+	if os.Getenv("MCPEACH_KEYCHAIN_STORE") == "memory" {
+		return NewMemoryStore()
+	}
+	return NewKeyringStore()
+}
+
 // Resolver resolves secret references against the environment and keychain.
 type Resolver struct {
 	store Store
