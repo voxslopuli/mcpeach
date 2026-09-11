@@ -24,11 +24,16 @@ type fakeClient struct {
 	deleted   map[string]bool
 	details   map[string]client.ServerDetail
 	detailErr error
+	secrets   []client.ServerSecrets
 }
 
 func (f *fakeClient) ListServers(ctx context.Context) ([]client.ServerInfo, error) {
 	return f.servers, nil
 }
+func (f *fakeClient) ListSecrets(ctx context.Context) ([]client.ServerSecrets, error) {
+	return f.secrets, nil
+}
+
 func (f *fakeClient) ListTools(ctx context.Context) ([]string, error) {
 	return f.tools, nil
 }
@@ -582,6 +587,10 @@ type errClient struct{}
 func (e *errClient) ListServers(ctx context.Context) ([]client.ServerInfo, error) {
 	return nil, fmt.Errorf("boom")
 }
+func (e *errClient) ListSecrets(ctx context.Context) ([]client.ServerSecrets, error) {
+	return nil, fmt.Errorf("boom")
+}
+
 func (e *errClient) ListTools(ctx context.Context) ([]string, error) {
 	return nil, fmt.Errorf("boom")
 }
@@ -795,5 +804,57 @@ func TestDeleteConfirmEscCancels(t *testing.T) {
 	}
 	if m.view != viewDetail {
 		t.Errorf("view = %v, want viewDetail (cancel stays on detail)", m.view)
+	}
+}
+
+func TestSecretsView(t *testing.T) {
+	fc := &fakeClient{
+		servers: []client.ServerInfo{{Name: "srv", State: "stopped"}},
+		secrets: []client.ServerSecrets{{
+			Server: "srv",
+			Sources: []client.SecretSource{
+				{Name: "GITHUB_TOKEN", Reference: "keychain:mcpeach/srv/GITHUB_TOKEN", Resolvable: true},
+				{Name: "LOG_LEVEL", Reference: "debug", Resolvable: true},
+			},
+		}},
+	}
+	m := NewModel(fc)
+	m.loadServers()
+
+	// 's' opens the secrets view and loads secrets.
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 's'})
+	if m.view != viewSecrets {
+		t.Fatalf("view = %v, want viewSecrets", m.view)
+	}
+	if cmd == nil {
+		t.Fatal("'s': want load secrets cmd")
+	}
+	m.Update(cmd())
+
+	v := m.View()
+	if !strings.Contains(v.Content, "GITHUB_TOKEN") || !strings.Contains(v.Content, "keychain") {
+		t.Errorf("view missing secret source: %s", v.Content)
+	}
+	// Values must never appear.
+	if strings.Contains(v.Content, "newsecret") {
+		t.Error("secret value leaked in secrets view")
+	}
+	// 's' toggles back to list.
+	m.Update(tea.KeyPressMsg{Code: 's'})
+	if m.view != viewList {
+		t.Errorf("view = %v, want viewList after toggle", m.view)
+	}
+}
+
+func TestSecretsViewError(t *testing.T) {
+	m := NewModel(&errClient{})
+	// 's' from the root opens the secrets view and loads (which errors).
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 's'})
+	if m.view != viewSecrets {
+		t.Fatalf("view = %v, want viewSecrets", m.view)
+	}
+	m.Update(cmd())
+	if m.secretsErr == "" {
+		t.Error("secretsErr not set on error")
 	}
 }

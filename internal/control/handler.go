@@ -110,8 +110,18 @@ func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) *H
 	mux.HandleFunc("GET /v0/servers/{name}/logs", h.serverLogs)
 	mux.HandleFunc("POST /v0/servers/{name}/start", h.startServer)
 	mux.HandleFunc("POST /v0/servers/{name}/stop", h.stopServer)
+	mux.HandleFunc("GET /v0/secrets", h.listSecrets)
+	mux.HandleFunc("POST /v0/secrets/{server}/{variable}", h.storeSecret)
+	mux.HandleFunc("DELETE /v0/secrets/{server}/{variable}", h.deleteSecret)
 	h.mux = mux
 	return h
+}
+
+// SetSecretStore swaps the handler's keychain store. Used by tests to inject
+// an in-memory store; production never calls it (the default is the OS
+// keychain).
+func (h *Handler) SetSecretStore(s secrets.Store) {
+	h.res.SetStore(s)
 }
 
 func (h *Handler) listServers(w http.ResponseWriter, r *http.Request) {

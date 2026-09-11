@@ -24,17 +24,19 @@ type clientIface interface {
 	UpdateServer(ctx context.Context, name string, req client.AddServerRequest) error
 	DeleteServer(ctx context.Context, name string) error
 	GetServer(ctx context.Context, name string) (client.ServerDetail, error)
+	ListSecrets(ctx context.Context) ([]client.ServerSecrets, error)
 }
 
 // view identifies the active TUI screen.
 type view int
 
 const (
-	viewList   view = iota // server list (root)
-	viewLogs               // per-server log viewer
-	viewTools              // aggregated tool list
-	viewForm               // add-server form
-	viewDetail             // server management screen
+	viewList    view = iota // server list (root)
+	viewLogs                // per-server log viewer
+	viewTools               // aggregated tool list
+	viewForm                // add-server form
+	viewDetail              // server management screen
+	viewSecrets             // secret sources per server
 )
 
 // Model is the Bubble Tea model for the mcpeach TUI.
@@ -52,6 +54,8 @@ type Model struct {
 	detail        *client.ServerDetail
 	detailErr     string
 	confirmDelete string // non-empty => delete confirmation armed for this server
+	secrets       []client.ServerSecrets
+	secretsErr    string
 }
 
 // NewModel builds a TUI model backed by the given control-plane client.
@@ -115,6 +119,23 @@ func (m *Model) loadLogsCmd(name string) tea.Cmd {
 			return logsLoadedMsg{name: name, err: err}
 		}
 		return logsLoadedMsg{name: name, lines: lines}
+	}
+}
+
+// secretsLoadedMsg carries the secret-source listing for the secrets view.
+type secretsLoadedMsg struct {
+	servers []client.ServerSecrets
+	err     error
+}
+
+// loadSecretsCmd returns a tea.Cmd that fetches per-server secret sources.
+func (m *Model) loadSecretsCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return secretsLoadedMsg{err: fmt.Errorf("not connected to daemon")}
+		}
+		s, err := m.client.ListSecrets(context.Background())
+		return secretsLoadedMsg{servers: s, err: err}
 	}
 }
 
@@ -332,6 +353,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detail = msg.detail
 		m.detailErr = ""
 		return m, nil
+	case secretsLoadedMsg:
+		if msg.err != nil {
+			m.secretsErr = msg.err.Error()
+			return m, nil
+		}
+		m.secrets = msg.servers
+		m.secretsErr = ""
+		return m, nil
 	case addServerDoneMsg:
 		m.view = viewList
 		if msg.err != nil {
@@ -392,6 +421,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.view = viewForm
 				m.form = &addServerForm{enabled: true}
 				return m, m.runAddServerForm()
+			}
+		case 's':
+			m.confirmDelete = ""
+			if m.view == viewList {
+				m.view = viewSecrets
+				return m, m.loadSecretsCmd()
+			}
+			if m.view == viewSecrets {
+				m.view = viewList
 			}
 		case 'e':
 			// Edit the server shown on the detail screen.
@@ -492,6 +530,26 @@ func (m *Model) View() tea.View {
 		return tea.NewView(b.String())
 	}
 
+	if m.view == viewSecrets {
+		b.WriteString(theme.Header.Render("Secrets") + "\n\n")
+		if m.secretsErr != "" {
+			b.WriteString(theme.Error.Render(m.secretsErr) + "\n")
+		} else {
+			for _, ss := range m.secrets {
+				b.WriteString(theme.Title.Render(ss.Server) + "\n")
+				if len(ss.Sources) == 0 {
+					b.WriteString("  (no environment variables)\n")
+				}
+				for _, src := range ss.Sources {
+					b.WriteString("  " + src.Name + "  " + theme.Help.Render(sourceStatus(src)) + "\n")
+				}
+			}
+		}
+		m.renderError(&b, theme)
+		b.WriteString("\n" + theme.Help.Render("s toggle secrets · esc/q back") + "\n")
+		return tea.NewView(b.String())
+	}
+
 	for i, s := range m.servers {
 		b.WriteString(theme.renderServerRow(s.Name, s.State, i == m.selected) + "\n")
 	}
@@ -501,6 +559,27 @@ func (m *Model) View() tea.View {
 	}
 	b.WriteString("\n" + theme.Help.Render("↑/↓ select · space start/stop · enter manage · n new · l logs · t tools · q quit"))
 	return tea.NewView(b.String())
+}
+
+// sourceStatus describes an env source's kind and resolvability without
+// leaking its value.
+func sourceStatus(src client.SecretSource) string {
+	switch {
+	case src.Reference == "":
+		return "literal"
+	case strings.HasPrefix(src.Reference, "keychain:"):
+		if src.Resolvable {
+			return "keychain"
+		}
+		return "keychain (missing)"
+	case strings.HasPrefix(src.Reference, "env:"):
+		if src.Resolvable {
+			return "env"
+		}
+		return "env (missing)"
+	default:
+		return "literal"
+	}
 }
 
 // renderError appends the current error line to the view buffer, if any.

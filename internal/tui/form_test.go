@@ -16,6 +16,10 @@ type addRecorder struct {
 func (r *addRecorder) ListServers(ctx context.Context) ([]client.ServerInfo, error) {
 	return nil, nil
 }
+func (r *addRecorder) ListSecrets(ctx context.Context) ([]client.ServerSecrets, error) {
+	return nil, nil
+}
+
 func (r *addRecorder) ListTools(ctx context.Context) ([]string, error) {
 	return nil, nil
 }

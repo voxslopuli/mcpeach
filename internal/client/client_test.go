@@ -310,3 +310,57 @@ func TestDeleteServer(t *testing.T) {
 		t.Error("deleted server still reachable via GetServer")
 	}
 }
+
+func TestSecretsRoundTrip(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := config.Default()
+	cfg.Servers["srv"] = config.ServerConfig{
+		Command: "echo",
+		Enabled: true,
+		Env:     map[string]string{"TOKEN": "keychain:mcpeach/srv/TOKEN"},
+	}
+	h := control.NewHandler(server.NewManager(), gateway.New(cfg), cfg)
+	h.SetSecretStore(&memStore{values: map[string]string{}})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := New(srv.URL)
+
+	secrets, err := c.ListSecrets(context.Background())
+	if err != nil {
+		t.Fatalf("ListSecrets: %v", err)
+	}
+	if len(secrets) != 1 || secrets[0].Server != "srv" {
+		t.Fatalf("secrets = %+v", secrets)
+	}
+	if len(secrets[0].Sources) != 1 || secrets[0].Sources[0].Reference != "keychain:mcpeach/srv/TOKEN" {
+		t.Fatalf("sources = %+v", secrets[0].Sources)
+	}
+
+	// Store then delete a secret through the API (in-memory keychain).
+	if err := c.StoreSecret(context.Background(), "srv", "API_KEY", "v"); err != nil {
+		t.Fatalf("StoreSecret: %v", err)
+	}
+	if err := c.DeleteSecret(context.Background(), "srv", "API_KEY"); err != nil {
+		t.Fatalf("DeleteSecret: %v", err)
+	}
+}
+
+// memStore is an in-memory keychain store for tests.
+type memStore struct {
+	values map[string]string
+}
+
+func (m *memStore) Get(service, user string) (string, error) {
+	if v, ok := m.values[service+"/"+user]; ok {
+		return v, nil
+	}
+	return "", errors.New("not found")
+}
+func (m *memStore) Set(service, user, secret string) error {
+	m.values[service+"/"+user] = secret
+	return nil
+}
+func (m *memStore) Delete(service, user string) error {
+	delete(m.values, service+"/"+user)
+	return nil
+}
