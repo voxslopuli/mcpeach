@@ -118,27 +118,27 @@ func (m *Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	// If the form is already completed/aborted, submit without re-updating.
 	if m.huhForm.State != huh.StateNormal {
-		completed := m.huhForm.State == huh.StateCompleted
-		m.view = viewList
-		m.huhForm = nil
-		if completed {
-			return m, m.submitAddServer(m.form)
-		}
-		return m, nil
+		return m.finishForm()
 	}
 	updated, cmd := m.huhForm.Update(msg)
 	m.huhForm = updated.(*huh.Form)
 	if m.huhForm.State != huh.StateNormal {
 		// The form completed (submitted or aborted). Submit the values.
-		completed := m.huhForm.State == huh.StateCompleted
-		m.view = viewList
-		m.huhForm = nil
-		if completed {
-			return m, m.submitAddServer(m.form)
-		}
-		return m, nil
+		return m.finishForm()
 	}
 	return m, cmd
+}
+
+// finishForm handles a completed/aborted form: returns to the list and, if the
+// form was completed, submits the collected values.
+func (m *Model) finishForm() (tea.Model, tea.Cmd) {
+	completed := m.huhForm.State == huh.StateCompleted
+	m.view = viewList
+	m.huhForm = nil
+	if completed {
+		return m, m.submitAddServer(m.form)
+	}
+	return m, nil
 }
 
 // editFormFromDetail builds a prefilled edit-mode form from a server detail.

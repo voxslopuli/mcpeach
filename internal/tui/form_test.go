@@ -268,3 +268,92 @@ func TestFormIntegrationSubmit(t *testing.T) {
 		t.Error("expected submit cmd after form completion")
 	}
 }
+
+func TestRunEditServerForm(t *testing.T) {
+	fc := &fakeClient{
+		details: map[string]client.ServerDetail{
+			"fake": {Name: "fake", Command: "/bin/echo", Transport: "stdio", Enabled: true},
+		},
+	}
+	m := NewModel(fc)
+	cmd := m.runEditServerForm("fake")
+	if cmd == nil {
+		t.Fatal("expected edit cmd")
+	}
+	if m.huhForm == nil {
+		t.Error("huhForm not initialized for edit")
+	}
+	if m.form == nil || m.form.editName != "fake" {
+		t.Errorf("form editName = %v, want fake", m.form)
+	}
+}
+
+func TestRunEditServerFormNoClient(t *testing.T) {
+	m := NewModel(nil)
+	msg := m.runEditServerForm("fake")()
+	if msg == nil {
+		t.Fatal("expected msg")
+	}
+	done, ok := msg.(addServerDoneMsg)
+	if !ok || done.err == nil {
+		t.Errorf("expected error msg, got %#v", msg)
+	}
+}
+
+func TestUpdateFormNil(t *testing.T) {
+	m := NewModel(&fakeClient{})
+	m.view = viewForm
+	m.huhForm = nil
+	_, cmd := m.updateForm(tea.KeyPressMsg{Code: 'x'})
+	if m.view != viewList {
+		t.Errorf("view=%v, want viewList", m.view)
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd")
+	}
+}
+
+func TestUpdateFormCompletionPath(t *testing.T) {
+	fc := &fakeClient{}
+	m := NewModel(fc)
+	m.Update(tea.KeyPressMsg{Code: 'n'})
+	// Drive the form to completion by setting its state to completed, then
+	// call updateForm with a non-esc message to hit the post-Update branch.
+	m.huhForm.State = huh.StateCompleted
+	// The pre-check catches it and submits.
+	_, cmd := m.updateForm(tea.KeyPressMsg{Code: 'x'})
+	if cmd == nil {
+		t.Error("expected submit cmd")
+	}
+	if m.view != viewList {
+		t.Errorf("view=%v, want viewList", m.view)
+	}
+}
+
+func TestFinishFormCompleted(t *testing.T) {
+	fc := &fakeClient{}
+	m := NewModel(fc)
+	m.Update(tea.KeyPressMsg{Code: 'n'})
+	m.huhForm.State = huh.StateCompleted
+	_, cmd := m.finishForm()
+	if m.view != viewList || m.huhForm != nil {
+		t.Errorf("view=%v huhForm=%v, want viewList + nil", m.view, m.huhForm != nil)
+	}
+	if cmd == nil {
+		t.Error("expected submit cmd for completed form")
+	}
+}
+
+func TestFinishFormAborted(t *testing.T) {
+	fc := &fakeClient{}
+	m := NewModel(fc)
+	m.Update(tea.KeyPressMsg{Code: 'n'})
+	m.huhForm.State = huh.StateAborted
+	_, cmd := m.finishForm()
+	if m.view != viewList || m.huhForm != nil {
+		t.Errorf("view=%v huhForm=%v, want viewList + nil", m.view, m.huhForm != nil)
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd for aborted form")
+	}
+}
