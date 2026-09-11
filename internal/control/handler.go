@@ -106,6 +106,7 @@ func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) *H
 	mux.HandleFunc("GET /v0/processes", h.processes)
 	mux.HandleFunc("GET /v0/servers/{name}", h.getServer)
 	mux.HandleFunc("PUT /v0/servers/{name}", h.updateServer)
+	mux.HandleFunc("DELETE /v0/servers/{name}", h.deleteServer)
 	mux.HandleFunc("GET /v0/servers/{name}/logs", h.serverLogs)
 	mux.HandleFunc("POST /v0/servers/{name}/start", h.startServer)
 	mux.HandleFunc("POST /v0/servers/{name}/stop", h.stopServer)
@@ -389,6 +390,56 @@ func equalStrings(a, b []string) bool {
 }
 
 // equalEnv compares two env maps for equality.
+// deleteServer removes a server transactionally: stop it if running, remove
+// its client and tools from the gateway, then persist the config without it.
+// A failed save leaves the config and runtime untouched.
+func (h *Handler) deleteServer(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	cfg := h.cfg.Load()
+	if cfg == nil {
+		writeError(w, http.StatusInternalServerError, "config not available")
+		return
+	}
+	if _, ok := cfg.Servers[name]; !ok {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown server %q", name))
+		return
+	}
+
+	candidate := *cfg
+	candidate.Servers = copyServers(cfg.Servers)
+	delete(candidate.Servers, name)
+	if err := candidate.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !h.publishCandidate(w, &candidate) {
+		return
+	}
+
+	// Runtime cleanup after the config is committed: stop the server and
+	// remove its client + tools from the gateway.
+	if h.mgr != nil {
+		if s := h.mgr.Server(name); s != nil {
+			_ = s.Stop()
+		}
+	}
+	if h.gw != nil {
+		if c := h.gw.RemoveServer(name); c != nil {
+			if closer, ok := c.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+		}
+	}
+	if h.syncTools != nil {
+		h.syncTools()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"name": name, "deleted": true})
+}
+
 func equalEnv(a, b map[string]string) bool {
 	if len(a) != len(b) {
 		return false

@@ -1354,3 +1354,75 @@ func putServer(t *testing.T, h http.Handler, name string, req AddServerRequest) 
 	h.ServeHTTP(rec, httpReq)
 	return rec
 }
+
+func TestDeleteServer(t *testing.T) {
+	h, _, _, _ := newFakeServerHandler(t)
+	// Register a tool so deletion must clean the gateway.
+	h.gw.RegisterTool("fake", mcp.NewTool("echo"))
+
+	rec := deleteServer(t, h, "fake")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	// The config must no longer contain the server.
+	if _, ok := h.cfg.Load().Servers["fake"]; ok {
+		t.Error("deleted server still in config")
+	}
+	// The gateway must have no tools for the server.
+	for _, tool := range h.gw.Tools() {
+		if strings.HasPrefix(tool.Name, "fake__") {
+			t.Errorf("tool %s survived deletion", tool.Name)
+		}
+	}
+}
+
+func TestDeleteServerUnknown(t *testing.T) {
+	h, _, _, _ := newFakeServerHandler(t)
+	rec := deleteServer(t, h, "nope")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestDeleteServerSaveFailLeavesConfigUnchanged(t *testing.T) {
+	h, _, _, _ := newFakeServerHandler(t)
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	h.configPath = filepath.Join(dir, "mcpeach.yml")
+
+	rec := deleteServer(t, h, "fake")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if _, ok := h.cfg.Load().Servers["fake"]; !ok {
+		t.Error("failed delete removed the server from the in-memory config")
+	}
+}
+
+func TestDeleteServerRunningStopsFirst(t *testing.T) {
+	h, mgr, _, _ := newFakeServerHandler(t)
+	mgr.Add(server.New("fake"))
+	if err := mgr.MarkRunning("fake"); err != nil {
+		t.Fatalf("MarkRunning: %v", err)
+	}
+
+	rec := deleteServer(t, h, "fake")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	if s := mgr.Server("fake"); s != nil && s.State().String() == "running" {
+		t.Error("server still running after delete")
+	}
+}
+
+// deleteServer issues DELETE /v0/servers/{name} against h.
+func deleteServer(t *testing.T, h http.Handler, name string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodDelete, "/v0/servers/"+name, nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}

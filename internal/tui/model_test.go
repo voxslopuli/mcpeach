@@ -21,6 +21,7 @@ type fakeClient struct {
 	stopped   map[string]bool
 	added     bool
 	updated   map[string]bool
+	deleted   map[string]bool
 	details   map[string]client.ServerDetail
 	detailErr error
 }
@@ -57,6 +58,13 @@ func (f *fakeClient) UpdateServer(ctx context.Context, name string, req client.A
 		f.updated = map[string]bool{}
 	}
 	f.updated[name] = true
+	return nil
+}
+func (f *fakeClient) DeleteServer(ctx context.Context, name string) error {
+	if f.deleted == nil {
+		f.deleted = map[string]bool{}
+	}
+	f.deleted[name] = true
 	return nil
 }
 func (f *fakeClient) GetServer(ctx context.Context, name string) (client.ServerDetail, error) {
@@ -594,6 +602,10 @@ func (e *errClient) UpdateServer(ctx context.Context, name string, req client.Ad
 	return fmt.Errorf("boom")
 }
 
+func (e *errClient) DeleteServer(ctx context.Context, name string) error {
+	return fmt.Errorf("boom")
+}
+
 func (e *errClient) GetServer(ctx context.Context, name string) (client.ServerDetail, error) {
 	return client.ServerDetail{}, fmt.Errorf("boom")
 }
@@ -727,5 +739,61 @@ func TestDetailLoadError(t *testing.T) {
 	m.Update(dm)
 	if m.detailErr == "" {
 		t.Error("detailErr not surfaced after load error")
+	}
+}
+
+func TestDeleteConfirmFlow(t *testing.T) {
+	fc := &fakeClient{servers: []client.ServerInfo{{Name: "srv", State: "stopped"}}}
+	m := NewModel(fc)
+	m.loadServers()
+	m.view = viewDetail
+	m.detailName = "srv"
+
+	// 'd' arms the confirmation; nothing is deleted yet.
+	m.Update(tea.KeyPressMsg{Code: 'd'})
+	if m.confirmDelete != "srv" {
+		t.Fatalf("confirmDelete = %q, want srv after 'd'", m.confirmDelete)
+	}
+	if fc.deleted["srv"] {
+		t.Error("'d' must not delete before confirmation")
+	}
+
+	// 'y' confirms and issues the delete cmd.
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'y'})
+	if cmd == nil {
+		t.Fatal("'y': want delete cmd, got nil")
+	}
+	msg := cmd()
+	action, ok := msg.(serverActionMsg)
+	if !ok {
+		t.Fatalf("delete cmd produced %T, want serverActionMsg", msg)
+	}
+	if !action.deleted {
+		t.Error("delete cmd: deleted = false, want true")
+	}
+	if fc.deleted["srv"] {
+		t.Log("delete issued")
+	}
+
+	// The successful delete returns to the list.
+	m.Update(action)
+	if m.view != viewList {
+		t.Errorf("view = %v, want viewList after delete", m.view)
+	}
+}
+
+func TestDeleteConfirmEscCancels(t *testing.T) {
+	fc := &fakeClient{}
+	m := NewModel(fc)
+	m.view = viewDetail
+	m.detailName = "srv"
+	m.confirmDelete = "srv"
+
+	m.Update(tea.KeyPressMsg{Code: uv.KeyEscape})
+	if m.confirmDelete != "" {
+		t.Error("esc did not cancel the delete confirmation")
+	}
+	if m.view != viewDetail {
+		t.Errorf("view = %v, want viewDetail (cancel stays on detail)", m.view)
 	}
 }

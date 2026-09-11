@@ -22,6 +22,7 @@ type clientIface interface {
 	StopServer(ctx context.Context, name string) error
 	AddServer(ctx context.Context, req client.AddServerRequest) error
 	UpdateServer(ctx context.Context, name string, req client.AddServerRequest) error
+	DeleteServer(ctx context.Context, name string) error
 	GetServer(ctx context.Context, name string) (client.ServerDetail, error)
 }
 
@@ -38,18 +39,19 @@ const (
 
 // Model is the Bubble Tea model for the mcpeach TUI.
 type Model struct {
-	client     clientIface
-	servers    []client.ServerInfo
-	tools      []string
-	logLines   []string
-	selected   int
-	view       view
-	form       *addServerForm
-	err        string
-	status     string // transient informational message (not an error)
-	detailName string
-	detail     *client.ServerDetail
-	detailErr  string
+	client        clientIface
+	servers       []client.ServerInfo
+	tools         []string
+	logLines      []string
+	selected      int
+	view          view
+	form          *addServerForm
+	err           string
+	status        string // transient informational message (not an error)
+	detailName    string
+	detail        *client.ServerDetail
+	detailErr     string
+	confirmDelete string // non-empty => delete confirmation armed for this server
 }
 
 // NewModel builds a TUI model backed by the given control-plane client.
@@ -73,8 +75,9 @@ type serversLoadedMsg struct {
 
 // serverActionMsg is sent after a start/stop completes.
 type serverActionMsg struct {
-	name string
-	err  error
+	name    string
+	err     error
+	deleted bool // set when the action was a successful delete
 }
 
 // logsLoadedMsg carries the result of a ServerLogs call. name identifies the
@@ -175,6 +178,17 @@ func (m *Model) stopServerCmd(name string) tea.Cmd {
 	}
 }
 
+// deleteServerCmd returns a tea.Cmd that deletes a server asynchronously.
+func (m *Model) deleteServerCmd(name string) tea.Cmd {
+	return func() tea.Msg {
+		var err error
+		if m.client != nil {
+			err = m.client.DeleteServer(context.Background(), name)
+		}
+		return serverActionMsg{name: name, err: err, deleted: err == nil}
+	}
+}
+
 // loadServers fetches the server list synchronously (used in tests).
 func (m *Model) loadServers() {
 	if m.client == nil {
@@ -269,9 +283,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampSelection()
 		return m, nil
 	case serverActionMsg:
-		// After a start/stop, refresh the server list. Surface any error.
+		// After a start/stop/delete, refresh the server list. Surface any error.
 		if msg.err != nil {
 			m.err = msg.err.Error()
+		} else if msg.deleted {
+			// A successful delete returns to the list.
+			m.view = viewList
+			m.detail = nil
+			m.detailName = ""
 		}
 		return m, m.loadServersCmd()
 	case logsLoadedMsg:
@@ -377,7 +396,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.view = viewForm
 				return m, m.runEditServerForm(m.detailName)
 			}
+		case 'd':
+			// Arm the delete confirmation for the server on the detail screen.
+			if m.view == viewDetail && m.detailName != "" {
+				m.confirmDelete = m.detailName
+				return m, nil
+			}
+		case 'y':
+			// Confirm the armed deletion.
+			if m.confirmDelete != "" {
+				name := m.confirmDelete
+				m.confirmDelete = ""
+				return m, m.deleteServerCmd(name)
+			}
 		case uv.KeyEscape, 'q':
+			// An armed delete confirmation is cancelled by esc (or any nav).
+			if m.confirmDelete != "" {
+				m.confirmDelete = ""
+				return m, nil
+			}
 			// The form owns text input: esc cancels it, but 'q' must be inert so
 			if m.view == viewForm {
 				if msg.Code == uv.KeyEscape {

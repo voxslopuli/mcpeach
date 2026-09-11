@@ -79,7 +79,11 @@ func (m *Model) renderDetail(b *strings.Builder) {
 	for _, kv := range sortedEnv(d.Env) {
 		b.WriteString(theme.Header.Render(padLabel("Env "+kv[0])) + kv[1] + "\n")
 	}
-	b.WriteString("\n" + theme.Help.Render("esc back") + "\n")
+	if m.confirmDelete != "" {
+		b.WriteString("\n" + theme.Error.Render("Delete server \""+m.confirmDelete+"\"? This removes its mcpeach configuration. [y] confirm · [esc] cancel") + "\n")
+		return
+	}
+	b.WriteString("\n" + theme.Help.Render("e edit · d delete · esc back") + "\n")
 }
 
 // enabledLabel renders the configured state.
