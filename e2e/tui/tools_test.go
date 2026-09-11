@@ -14,8 +14,7 @@ func TestToolsDistinctFromProcess(t *testing.T) {
 	_, s := fx.Setup(t, binPath, harness.FakeServerConfig(fake), "tools", 100, 30)
 
 	s.ExpectServerRunning()
-	s.Key("enter")
-	s.Expect("Server: fake")
+	s.OpenManagement()
 	// The canonical tool name is shown under MCP Tools.
 	s.Expect("fake__echo")
 	// MCP Tools is a distinct section header; process telemetry is separate.

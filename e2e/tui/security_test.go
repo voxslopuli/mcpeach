@@ -30,8 +30,7 @@ func TestSecurityNoSecretLeak(t *testing.T) {
 
 	// The TUI shows the server; the resolved secret value must never appear.
 	s.ExpectServerRunning()
-	s.Key("enter")
-	s.Expect("Server: fake")
+	s.OpenManagement()
 	harness.AssertNoSecret(t, s.Text(), secret)
 
 	// The API returns the env reference, never the resolved value.

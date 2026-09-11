@@ -114,6 +114,14 @@ func (s *Session) ExpectServerRunning() {
 	s.Expect("running")
 }
 
+// OpenManagement presses Enter to open the selected server's management screen
+// and asserts the header renders.
+func (s *Session) OpenManagement() {
+	s.t.Helper()
+	s.Key("enter")
+	s.Expect("Server: fake")
+}
+
 // WaitIdle waits until the terminal is idle (no pending output).
 func (s *Session) WaitIdle() {
 	s.t.Helper()
