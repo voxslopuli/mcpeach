@@ -308,7 +308,7 @@ func (h *Handler) updateServer(w http.ResponseWriter, r *http.Request) {
 	if !h.publishCandidate(w, &candidate) {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"name": req.Name, "restart_required": restartNeeded(h.mgr, name, old, newSC)})
+	writeJSON(w, http.StatusOK, map[string]any{"name": req.Name, "restart_required": restartNeeded(h.mgr, name, req.Name, old, newSC)})
 }
 
 // serverConfigFromRequest maps a request body onto a config entry.
@@ -324,14 +324,19 @@ func serverConfigFromRequest(req AddServerRequest) config.ServerConfig {
 }
 
 // restartNeeded reports whether a running server's runtime-affecting fields
-// changed, so the client should restart it to pick up the edit.
-func restartNeeded(mgr *server.Manager, name string, old, new config.ServerConfig) bool {
+// changed (or the server was renamed), so the client should restart it to
+// pick up the edit.
+func restartNeeded(mgr *server.Manager, name, newName string, old, new config.ServerConfig) bool {
 	if mgr == nil {
 		return false
 	}
 	s := mgr.Server(name)
 	if s == nil || s.State().String() != "running" {
 		return false
+	}
+	if name != newName {
+		// A rename orphans the running process under the old name.
+		return true
 	}
 	return old.Command != new.Command || old.URL != new.URL ||
 		old.Transport != new.Transport || !equalStrings(old.Args, new.Args) ||

@@ -368,7 +368,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case 'n':
 			if m.view == viewList {
 				m.view = viewForm
-				m.form = &addServerForm{}
+				m.form = &addServerForm{enabled: true}
 				return m, m.runAddServerForm()
 			}
 		case 'e':

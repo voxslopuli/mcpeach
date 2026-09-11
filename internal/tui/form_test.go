@@ -45,12 +45,12 @@ func TestFormSubmit(t *testing.T) {
 	}{
 		{
 			name:    "stdio",
-			form:    &addServerForm{name: "srv", command: "echo", transport: "stdio"},
+			form:    &addServerForm{name: "srv", command: "echo", transport: "stdio", enabled: true},
 			wantReq: client.AddServerRequest{Name: "srv", Command: "echo", Transport: "stdio", Enabled: true},
 		},
 		{
 			name:    "remote",
-			form:    &addServerForm{name: "srv", transport: "sse", url: "https://mcp.example.com/mcp"},
+			form:    &addServerForm{name: "srv", transport: "sse", url: "https://mcp.example.com/mcp", enabled: true},
 			wantReq: client.AddServerRequest{Name: "srv", URL: "https://mcp.example.com/mcp", Transport: "sse", Enabled: true},
 		},
 		{
@@ -195,5 +195,20 @@ func TestFormRejectsCommandAndURL(t *testing.T) {
 	f := &addServerForm{name: "x", command: "npx", url: "https://mcp.example.com/mcp"}
 	if err := validateAddServer(f); err == nil {
 		t.Error("command+url both set: want error, got nil")
+	}
+}
+
+func TestFormEditPreservesEnvAndEnabled(t *testing.T) {
+	d := &client.ServerDetail{
+		Name: "srv", Command: "npx", Transport: "stdio",
+		Env:     map[string]string{"TOKEN": "keychain:mcpeach/srv/TOKEN"},
+		Enabled: false,
+	}
+	f := editFormFromDetail(d, "srv")
+	if f.env["TOKEN"] != "keychain:mcpeach/srv/TOKEN" {
+		t.Errorf("env = %v, want source reference preserved", f.env)
+	}
+	if f.enabled {
+		t.Error("enabled = true, want false (carried from detail)")
 	}
 }

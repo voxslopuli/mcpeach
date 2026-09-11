@@ -14,7 +14,9 @@ import (
 
 // addServerForm is the huh form for adding a new MCP server. The same form
 // powers edit mode: when editName is non-empty the form prepopulates from the
-// server's detail and submits via UpdateServer instead of AddServer.
+// server's detail and submits via UpdateServer instead of AddServer. env and
+// enabled are carried through untouched in edit mode (the form does not edit
+// them yet; env values are source references, never resolved secrets).
 type addServerForm struct {
 	name      string
 	command   string
@@ -22,6 +24,8 @@ type addServerForm struct {
 	transport string
 	url       string
 	editName  string // non-empty => edit mode for this server
+	env       map[string]string
+	enabled   bool
 }
 
 // validateServerName is the huh field-level validator for the server name.
@@ -75,7 +79,7 @@ func buildAddServerForm(f *addServerForm) *huh.Form {
 func (m *Model) runAddServerForm() tea.Cmd {
 	return func() tea.Msg {
 		if m.form == nil {
-			m.form = &addServerForm{}
+			m.form = &addServerForm{enabled: true}
 		}
 		form := buildAddServerForm(m.form)
 		if err := form.Run(); err != nil {
@@ -111,7 +115,8 @@ func (m *Model) runEditServerForm(name string) tea.Cmd {
 
 // editFormFromDetail builds a prefilled edit-mode form from a server detail.
 // Separated from runEditServerForm so tests can exercise the prefill without
-// running the interactive huh form.
+// running the interactive huh form. Env (source references) and enabled are
+// carried through so an edit cannot silently wipe them.
 func editFormFromDetail(d *client.ServerDetail, originalName string) *addServerForm {
 	return &addServerForm{
 		name:      d.Name,
@@ -120,6 +125,8 @@ func editFormFromDetail(d *client.ServerDetail, originalName string) *addServerF
 		transport: d.Transport,
 		url:       d.URL,
 		editName:  originalName,
+		env:       d.Env,
+		enabled:   d.Enabled,
 	}
 }
 
@@ -147,10 +154,10 @@ func (m *Model) submitAddServer(f *addServerForm) tea.Cmd {
 			Name:      f.name,
 			Command:   f.command,
 			Args:      args,
-			Env:       nil, // the form does not collect env vars yet
+			Env:       f.env,
 			URL:       f.url,
 			Transport: f.transport,
-			Enabled:   true,
+			Enabled:   f.enabled,
 		}
 		var err error
 		if f.editName != "" {

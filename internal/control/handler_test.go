@@ -1338,3 +1338,26 @@ func TestUpdateServerRestartRequired(t *testing.T) {
 		t.Errorf("restart_required = %v, want true", resp["restart_required"])
 	}
 }
+
+func TestUpdateServerRenameRunningRestartRequired(t *testing.T) {
+	h, mgr, _, _ := newFakeServerHandler(t)
+	mgr.Add(server.New("fake"))
+	if err := mgr.MarkRunning("fake"); err != nil {
+		t.Fatalf("MarkRunning: %v", err)
+	}
+
+	body, _ := json.Marshal(AddServerRequest{Name: "renamed", Command: "echo", Enabled: true})
+	httpReq := httptest.NewRequest(http.MethodPut, "/v0/servers/fake", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httpReq)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["restart_required"] != true {
+		t.Errorf("restart_required = %v, want true (rename of running server)", resp["restart_required"])
+	}
+}
