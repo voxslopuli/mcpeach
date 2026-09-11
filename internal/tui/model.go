@@ -396,6 +396,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Refresh the server list after a successful add.
 		return m, m.loadServersCmd()
+	case editDetailLoadedMsg:
+		// The edit form's detail arrived; open the form with the prefilled
+		// values.
+		m.form = editFormFromDetail(msg.detail, msg.name)
+		m.huhForm = buildAddServerForm(m.form)
+		return m, m.huhForm.Init()
 	case tea.KeyPressMsg:
 		switch msg.Code {
 		case tea.KeyUp:

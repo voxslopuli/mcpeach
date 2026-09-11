@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/zalando/go-keyring"
 )
@@ -48,8 +49,9 @@ func (k *KeyringStore) Delete(service, user string) error {
 }
 
 // MemoryStore is an in-memory Store used for tests and the E2E suite (so no
-// test touches the real OS keychain).
+// test touches the real OS keychain). It is safe for concurrent use.
 type MemoryStore struct {
+	mu     sync.Mutex
 	values map[string]string
 }
 
@@ -60,6 +62,8 @@ func NewMemoryStore() *MemoryStore {
 
 // Get fetches a secret from the in-memory map.
 func (m *MemoryStore) Get(service, user string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if v, ok := m.values[service+"/"+user]; ok {
 		return v, nil
 	}
@@ -68,12 +72,16 @@ func (m *MemoryStore) Get(service, user string) (string, error) {
 
 // Set stores a secret in the in-memory map.
 func (m *MemoryStore) Set(service, user, secret string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.values[service+"/"+user] = secret
 	return nil
 }
 
 // Delete removes a secret from the in-memory map.
 func (m *MemoryStore) Delete(service, user string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.values, service+"/"+user)
 	return nil
 }

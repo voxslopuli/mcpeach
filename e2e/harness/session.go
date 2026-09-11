@@ -122,6 +122,34 @@ func (s *Session) OpenManagement() {
 	s.Expect("Server: fake")
 }
 
+// FillAddServerForm drives the new-server form through the standard field
+// sequence: name, command, args, transport (stdio), url, submit. Each step
+// waits for the terminal to settle so the form processes the key.
+func (s *Session) FillAddServerForm(name, command string) {
+	s.t.Helper()
+	s.Type(name)
+	s.Key("enter")
+	s.WaitIdle()
+	s.Type(command)
+	s.Key("enter")
+	s.WaitIdle()
+	// Args — leave empty.
+	s.Key("enter")
+	s.WaitIdle()
+	// Transport — open select, select stdio, move to URL.
+	s.Key("enter")
+	s.WaitIdle()
+	s.Key("enter")
+	s.WaitIdle()
+	s.Key("enter")
+	s.WaitIdle()
+	// URL — leave empty, submit.
+	s.Key("enter")
+	s.WaitIdle()
+	s.Key("enter")
+	s.WaitIdle()
+}
+
 // WaitIdle waits until the terminal is idle (no pending output).
 func (s *Session) WaitIdle() {
 	s.t.Helper()

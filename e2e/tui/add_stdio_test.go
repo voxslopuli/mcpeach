@@ -24,28 +24,8 @@ func TestAddStdioServer(t *testing.T) {
 	// 'n' opens the new-server form (integrated into the TUI).
 	s.Key("n")
 	s.Expect("Server name")
-	// Fill in the form: name, command, args, transport, url.
-	s.Type("newserver")
-	s.Key("enter")
-	s.WaitIdle()
-	s.Type(fake)
-	s.Key("enter")
-	s.WaitIdle()
-	// Args (space-separated) — leave empty.
-	s.Key("enter")
-	s.WaitIdle()
-	// Transport — open the select, select stdio, move to URL.
-	s.Key("enter")
-	s.WaitIdle()
-	s.Key("enter")
-	s.WaitIdle()
-	s.Key("enter")
-	s.WaitIdle()
-	// URL — leave empty, submit.
-	s.Key("enter")
-	s.WaitIdle()
-	s.Key("enter")
-	s.WaitIdle()
+	// Fill in the form and submit.
+	s.FillAddServerForm("newserver", fake)
 	// The new server appears in the list.
 	s.Expect("newserver")
 	// Verify via the API.

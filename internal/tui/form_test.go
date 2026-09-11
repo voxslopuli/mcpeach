@@ -280,6 +280,14 @@ func TestRunEditServerForm(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected edit cmd")
 	}
+	// The cmd fetches the detail asynchronously and emits editDetailLoadedMsg.
+	msg := cmd()
+	edit, ok := msg.(editDetailLoadedMsg)
+	if !ok {
+		t.Fatalf("expected editDetailLoadedMsg, got %T", msg)
+	}
+	// Handle the message to open the form.
+	m.Update(edit)
 	if m.huhForm == nil {
 		t.Error("huhForm not initialized for edit")
 	}

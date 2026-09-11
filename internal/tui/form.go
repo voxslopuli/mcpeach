@@ -86,20 +86,27 @@ func (m *Model) runAddServerForm() tea.Cmd {
 
 // runEditServerForm opens the shared form in edit mode for the named server,
 // prepopulating every field from its detail. Env values arrive as source
-// references, never resolved secrets.
+// references, never resolved secrets. The detail is fetched asynchronously so
+// the UI thread never blocks on the control plane.
 func (m *Model) runEditServerForm(name string) tea.Cmd {
 	if m.client == nil {
 		return func() tea.Msg { return addServerDoneMsg{err: errors.New("client unavailable")} }
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	d, err := m.client.GetServer(ctx, name)
-	if err != nil {
-		return func() tea.Msg { return addServerDoneMsg{err: err} }
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		d, err := m.client.GetServer(ctx, name)
+		if err != nil {
+			return addServerDoneMsg{err: err}
+		}
+		return editDetailLoadedMsg{name: name, detail: &d}
 	}
-	m.form = editFormFromDetail(&d, name)
-	m.huhForm = buildAddServerForm(m.form)
-	return m.huhForm.Init()
+}
+
+// editDetailLoadedMsg carries the server detail fetched for the edit form.
+type editDetailLoadedMsg struct {
+	name   string
+	detail *client.ServerDetail
 }
 
 // updateForm forwards a message to the active huh form and, when the form
