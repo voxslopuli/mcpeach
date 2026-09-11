@@ -28,6 +28,9 @@ func (r *addRecorder) AddServer(ctx context.Context, req client.AddServerRequest
 	r.req = req
 	return nil
 }
+func (r *addRecorder) GetServer(ctx context.Context, name string) (client.ServerDetail, error) {
+	return client.ServerDetail{}, nil
+}
 
 func TestFormSubmit(t *testing.T) {
 	tests := []struct {

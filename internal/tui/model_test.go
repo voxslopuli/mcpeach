@@ -14,11 +14,13 @@ import (
 
 // fakeClient is a minimal control-plane client for tests.
 type fakeClient struct {
-	servers []client.ServerInfo
-	tools   []string
-	logs    map[string][]string
-	started map[string]bool
-	stopped map[string]bool
+	servers   []client.ServerInfo
+	tools     []string
+	logs      map[string][]string
+	started   map[string]bool
+	stopped   map[string]bool
+	details   map[string]client.ServerDetail
+	detailErr error
 }
 
 func (f *fakeClient) ListServers(ctx context.Context) ([]client.ServerInfo, error) {
@@ -46,6 +48,12 @@ func (f *fakeClient) StopServer(ctx context.Context, name string) error {
 }
 func (f *fakeClient) AddServer(ctx context.Context, req client.AddServerRequest) error {
 	return nil
+}
+func (f *fakeClient) GetServer(ctx context.Context, name string) (client.ServerDetail, error) {
+	if f.detailErr != nil {
+		return client.ServerDetail{}, f.detailErr
+	}
+	return f.details[name], nil
 }
 
 func TestNewModel(t *testing.T) {
@@ -249,12 +257,15 @@ func TestEnterDoesNotStartOrStop(t *testing.T) {
 		m := NewModel(fc)
 		m.loadServers()
 
+		// Enter opens the detail screen (a load cmd is fine); it must never
+		// issue a lifecycle command.
 		_, cmd := m.Update(tea.KeyPressMsg{Code: uv.KeyEnter})
-		if cmd != nil {
-			t.Errorf("Enter on %s: want nil cmd, got %v", state, cmd)
-		}
+		_ = cmd
 		if fc.started["a"] || fc.stopped["a"] {
 			t.Errorf("Enter on %s issued a lifecycle command", state)
+		}
+		if m.view != viewDetail {
+			t.Errorf("Enter on %s: view = %v, want viewDetail", state, m.view)
 		}
 	}
 }
@@ -401,17 +412,6 @@ func TestListFooterShowsNewKeybindings(t *testing.T) {
 	}
 	if strings.Contains(v.Content, "a add") {
 		t.Error("list footer still advertises old 'a add' binding")
-	}
-}
-
-func TestEnterShowsComingSoonStatus(t *testing.T) {
-	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a", State: "running"}}}
-	m := NewModel(fc)
-	m.loadServers()
-	m.Update(tea.KeyPressMsg{Code: uv.KeyEnter})
-	v := m.View()
-	if !strings.Contains(v.Content, "coming soon") {
-		t.Errorf("View missing 'coming soon' status after Enter: %q", v.Content)
 	}
 }
 
@@ -580,6 +580,10 @@ func (e *errClient) AddServer(ctx context.Context, req client.AddServerRequest) 
 	return fmt.Errorf("boom")
 }
 
+func (e *errClient) GetServer(ctx context.Context, name string) (client.ServerDetail, error) {
+	return client.ServerDetail{}, fmt.Errorf("boom")
+}
+
 func TestLoadCommandsSurfaceErrors(t *testing.T) {
 	m := NewModel(&errClient{})
 	m.servers = []client.ServerInfo{{Name: "srv"}}
@@ -615,5 +619,99 @@ func TestQInertInFormView(t *testing.T) {
 	m.Update(tea.KeyPressMsg{Code: uv.KeyEscape})
 	if m.view != viewList {
 		t.Errorf("view = %v, want viewList after esc in form", m.view)
+	}
+}
+func TestEnterOpensDetail(t *testing.T) {
+	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a", State: "running"}}}
+	m := NewModel(fc)
+	m.loadServers()
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: uv.KeyEnter})
+	if cmd == nil {
+		t.Fatal("Enter: want detail-load cmd, got nil")
+	}
+	if m.view != viewDetail {
+		t.Errorf("view = %v, want viewDetail", m.view)
+	}
+	if m.detailName != "a" {
+		t.Errorf("detailName = %q, want a (captured name, not index)", m.detailName)
+	}
+	// The Enter cmd emits detailLoadMsg, which triggers the async GetServer.
+	msg := cmd()
+	if _, ok := msg.(detailLoadMsg); !ok {
+		t.Errorf("Enter cmd produced %T, want detailLoadMsg", msg)
+	}
+	_, cmd2 := m.Update(msg)
+	if cmd2 == nil {
+		t.Fatal("detailLoadMsg: want load cmd, got nil")
+	}
+	loaded, ok := cmd2().(detailLoadedMsg)
+	if !ok {
+		t.Errorf("load cmd produced %T, want detailLoadedMsg", cmd2())
+	}
+	if loaded.err != nil || loaded.detail == nil {
+		t.Errorf("detailLoadedMsg = %+v, want loaded detail", loaded)
+	}
+}
+
+func TestDetailEscReturnsToList(t *testing.T) {
+	fc := &fakeClient{servers: []client.ServerInfo{{Name: "a"}}}
+	m := NewModel(fc)
+	m.loadServers()
+	m.view = viewDetail
+	m.detailName = "a"
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: uv.KeyEscape})
+	if cmd != nil {
+		t.Errorf("esc in detail: want nil cmd (back), got %v", cmd)
+	}
+	if m.view != viewList {
+		t.Errorf("view = %v, want viewList after esc", m.view)
+	}
+}
+
+func TestDetailRendersServerInfo(t *testing.T) {
+	fc := &fakeClient{servers: []client.ServerInfo{{Name: "github", State: "running"}}}
+	m := NewModel(fc)
+	m.loadServers()
+	m.view = viewDetail
+	m.detailName = "github"
+	m.detail = &client.ServerDetail{
+		Name:      "github",
+		State:     "running",
+		Transport: "stdio",
+		Command:   "npx",
+		Args:      []string{"-y", "@modelcontextprotocol/server-github"},
+		Enabled:   true,
+		ToolCount: 14,
+	}
+	v := m.View()
+	for _, want := range []string{"github", "stdio", "npx", "running", "14", "enabled"} {
+		if !strings.Contains(v.Content, want) {
+			t.Errorf("detail view missing %q: %q", want, v.Content)
+		}
+	}
+}
+
+func TestDetailLoadError(t *testing.T) {
+	fc := &fakeClient{detailErr: fmt.Errorf("boom")}
+	m := NewModel(fc)
+	m.view = viewDetail
+	m.detailName = "a"
+	_, cmd := m.Update(detailLoadMsg{})
+	if cmd == nil {
+		t.Fatal("detailLoadMsg: want load cmd, got nil")
+	}
+	msg := cmd()
+	dm, ok := msg.(detailLoadedMsg)
+	if !ok {
+		t.Fatalf("load cmd produced %T, want detailLoadedMsg", msg)
+	}
+	if dm.err == nil {
+		t.Error("detailLoadedMsg.err = nil, want error")
+	}
+	m.Update(dm)
+	if m.detailErr == "" {
+		t.Error("detailErr not surfaced after load error")
 	}
 }

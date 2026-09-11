@@ -21,6 +21,7 @@ type clientIface interface {
 	StartServer(ctx context.Context, name string) error
 	StopServer(ctx context.Context, name string) error
 	AddServer(ctx context.Context, req client.AddServerRequest) error
+	GetServer(ctx context.Context, name string) (client.ServerDetail, error)
 }
 
 // view identifies the active TUI screen.
@@ -31,20 +32,23 @@ const (
 	viewLogs               // per-server log viewer
 	viewTools              // aggregated tool list
 	viewForm               // add-server form
-	viewDetail             // server management screen (T2, not yet implemented)
+	viewDetail             // server management screen
 )
 
 // Model is the Bubble Tea model for the mcpeach TUI.
 type Model struct {
-	client   clientIface
-	servers  []client.ServerInfo
-	tools    []string
-	logLines []string
-	selected int
-	view     view
-	form     *addServerForm
-	err      string
-	status   string // transient informational message (not an error)
+	client     clientIface
+	servers    []client.ServerInfo
+	tools      []string
+	logLines   []string
+	selected   int
+	view       view
+	form       *addServerForm
+	err        string
+	status     string // transient informational message (not an error)
+	detailName string
+	detail     *client.ServerDetail
+	detailErr  string
 }
 
 // NewModel builds a TUI model backed by the given control-plane client.
@@ -293,6 +297,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = ""
 		m.tools = msg.tools
 		return m, nil
+	case detailLoadMsg:
+		return m, m.loadDetailCmd(m.detailName)
+	case detailLoadedMsg:
+		// Drop a response for a server that is no longer selected BEFORE
+		// surfacing its error.
+		if msg.name != m.detailName {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.detailErr = msg.err.Error()
+			return m, nil
+		}
+		m.detail = msg.detail
+		m.detailErr = ""
+		return m, nil
 	case addServerDoneMsg:
 		m.view = viewList
 		if msg.err != nil {
@@ -313,10 +332,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 		case uv.KeyEnter:
-			// Opens the server management screen (T2). Not implemented yet.
+			// Opens the server management screen for the selected server.
 			if m.view == viewList {
-				m.err = "server management coming soon"
+				if m.client == nil || len(m.servers) == 0 {
+					return m, nil
+				}
+				// Capture the server NAME, not the index: the list may refresh
+				// while the detail screen is open.
+				m.detailName = m.servers[m.selected].Name
+				m.detail = nil
+				m.detailErr = ""
+				m.view = viewDetail
+				return m, func() tea.Msg { return detailLoadMsg{} }
 			}
+			return m, nil
 		case 'l':
 			switch m.view {
 			case viewList:
@@ -343,7 +372,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case uv.KeyEscape, 'q':
 			// The form owns text input: esc cancels it, but 'q' must be inert so
-			// typing a value containing 'q' does not quit the TUI.
 			if m.view == viewForm {
 				if msg.Code == uv.KeyEscape {
 					m.view = viewList
@@ -354,6 +382,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// From a sub-view, esc/q returns to the list; from the list it quits.
 			if m.view != viewList {
 				m.view = viewList
+				m.detail = nil
+				m.detailErr = ""
 				return m, nil
 			}
 			return m, tea.Quit
@@ -371,6 +401,11 @@ func (m *Model) View() tea.View {
 	theme := DefaultTheme()
 	var b strings.Builder
 	b.WriteString(theme.Title.Render("mcpeach") + "\n")
+
+	if m.view == viewDetail {
+		m.renderDetail(&b)
+		return tea.NewView(b.String())
+	}
 
 	if m.view == viewForm {
 		b.WriteString(theme.Header.Render("Add server form") + "\n\n")

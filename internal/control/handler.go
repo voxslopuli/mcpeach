@@ -36,6 +36,22 @@ type ListServersResponse struct {
 	Servers []ServerInfo `json:"servers"`
 }
 
+// ServerDetail is the GET /v0/servers/{name} response: the full server
+// configuration plus its runtime state and tool count. Env values are the
+// SOURCE REFERENCES from config (e.g. "keychain:...", "env:..."), never
+// resolved secrets.
+type ServerDetail struct {
+	Name      string            `json:"name"`
+	State     string            `json:"state"`
+	Transport string            `json:"transport,omitempty"`
+	Command   string            `json:"command,omitempty"`
+	Args      []string          `json:"args,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Enabled   bool              `json:"enabled"`
+	Env       map[string]string `json:"env,omitempty"`
+	ToolCount int               `json:"tool_count"`
+}
+
 // ListToolsResponse is the /v0/tools response.
 type ListToolsResponse struct {
 	Tools []string `json:"tools"`
@@ -87,6 +103,7 @@ func NewHandler(mgr *server.Manager, gw *gateway.Gateway, cfg *config.Config) *H
 	mux.HandleFunc("GET /v0/metrics", h.metrics)
 	mux.HandleFunc("GET /v0/logs", h.logs)
 	mux.HandleFunc("GET /v0/processes", h.processes)
+	mux.HandleFunc("GET /v0/servers/{name}", h.getServer)
 	mux.HandleFunc("GET /v0/servers/{name}/logs", h.serverLogs)
 	mux.HandleFunc("POST /v0/servers/{name}/start", h.startServer)
 	mux.HandleFunc("POST /v0/servers/{name}/stop", h.stopServer)
@@ -110,6 +127,52 @@ func (h *Handler) listServers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// getServer returns the full detail for one server: config (with env as
+// source references), runtime state, and the count of its registered tools.
+func (h *Handler) getServer(w http.ResponseWriter, r *http.Request) {
+	// The config is an atomic snapshot; no lock needed for this read-only path.
+	cfg := h.cfg.Load()
+	if cfg == nil {
+		writeError(w, http.StatusInternalServerError, "config not available")
+		return
+	}
+	name := r.PathValue("name")
+	sc, ok := cfg.Servers[name]
+	if !ok {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown server %q", name))
+		return
+	}
+	state := "stopped"
+	if h.mgr != nil {
+		if s := h.mgr.Server(name); s != nil {
+			state = s.State().String()
+		}
+	}
+	transport := sc.Transport
+	if transport == "" && sc.Command != "" {
+		transport = "stdio"
+	}
+	toolCount := 0
+	if h.gw != nil {
+		for _, t := range h.gw.Tools() {
+			if srv, _, ok := config.SplitCanonical(t.Name); ok && srv == name {
+				toolCount++
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, ServerDetail{
+		Name:      name,
+		State:     state,
+		Transport: transport,
+		Command:   sc.Command,
+		Args:      sc.Args,
+		URL:       sc.URL,
+		Enabled:   sc.Enabled,
+		Env:       sc.Env,
+		ToolCount: toolCount,
+	})
 }
 
 // addServer adds a new server to the config and persists it. The mutation is
