@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -83,6 +84,27 @@ func RunDaemonExpectError(t *testing.T, bin, root string, env []string) error {
 	}
 	// Return a wrapped error that includes the daemon output.
 	return fmt.Errorf("%v: %s", err, out)
+}
+
+// waitForAddr polls a file for a "listening on" line and returns the address.
+func WaitForAddr(t *testing.T, file string) string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		b, err := os.ReadFile(file)
+		if err == nil {
+			for _, line := range strings.Split(string(b), "\n") {
+				if strings.Contains(line, "listening on") {
+					parts := strings.Split(line, "listening on ")
+					if len(parts) == 2 {
+						return strings.TrimSpace(parts[1])
+					}
+				}
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return ""
 }
 
 // Stop terminates the daemon and waits for it to exit.
