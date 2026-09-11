@@ -625,7 +625,7 @@ func spawnServe(t *testing.T, bin, fakeBin string) (*exec.Cmd, chan error, func(
 	sock := config.SocketPath()
 
 	var stdout, stderr bytes.Buffer
-	cmd := exec.Command(filepath.Clean(bin), "serve") // nosemgrep: Semgrep_go_subproc_rule-subproc, Semgrep_go.lang.security.audit.dangerous-exec-command.dangerous-exec-command — bin is a t.TempDir() build path (trusted test input); exec.Command does not invoke a shell.
+	cmd := exec.Command(filepath.Clean(bin), "serve") // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command, go_subproc_rule-subproc — bin is a t.TempDir() build path (trusted test input); exec.Command does not invoke a shell.
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
