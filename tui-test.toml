@@ -1,0 +1,17 @@
+# tui-test terminal profile for mcpeach E2E tests.
+# See https://github.com/microsoft/tui-test for the schema.
+
+[terminal]
+backend = "alacritty"
+cols = 80
+rows = 30
+
+[timeouts]
+text = 5000
+idle = 5000
+command = 30000
+exit = 30000
+ready = 30000
+
+[recording]
+on_failure = true
