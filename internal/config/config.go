@@ -67,7 +67,7 @@ type GroupConfig struct {
 func Default() *Config {
 	return &Config{
 		Gateway: GatewayConfig{
-			Addr:    "127.0.0.1:8080",
+			Addr:    "127.0.0.1:11585",
 			Name:    "mcpeach",
 			Version: "0.1.0",
 		},

@@ -28,6 +28,7 @@ func TestAddStdioServer(t *testing.T) {
 	s.FillAddServerForm("newserver", fake)
 	// The new server appears in the list.
 	s.Expect("newserver")
-	// Verify via the API.
-	harness.AssertAPI(t, d, "GET", "/v0/servers", "", 200, "newserver")
+	// Verify via the API (polling, since the form submission may be slightly
+	// delayed under load).
+	harness.AssertAPIRetry(t, d, "GET", "/v0/servers", "", 200, "newserver")
 }

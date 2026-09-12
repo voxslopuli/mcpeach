@@ -88,7 +88,7 @@ func (f *Fixture) SocketPath() string {
 func (f *Fixture) WriteConfig(servers map[string]map[string]any) {
 	f.t.Helper()
 	var b []byte
-	b = append(b, []byte("gateway:\n  port: 8080\nllm:\n  model: qwen2.5-coder:7b\nservers:\n")...)
+	b = append(b, []byte("gateway:\n  addr: 127.0.0.1:11585\nllm:\n  model: qwen2.5-coder:7b\nservers:\n")...)
 	for name, sc := range servers {
 		b = append(b, []byte(fmt.Sprintf("  %s:\n", name))...)
 		for k, v := range sc {
