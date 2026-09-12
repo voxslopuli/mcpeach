@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,6 +14,16 @@ import (
 	"net/url"
 	"strings"
 )
+
+// isSocketMissing reports whether err is a unix-socket dial failure caused by
+// the socket not existing (i.e. the daemon is not running).
+func isSocketMissing(err error) bool {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return strings.Contains(opErr.Err.Error(), "no such file or directory")
+	}
+	return false
+}
 
 // Client talks to the mcpeach control-plane API.
 type Client struct {
@@ -225,6 +236,10 @@ func (c *Client) DeleteServer(ctx context.Context, name string) error {
 
 // do performs an HTTP request and decodes the JSON response, returning an
 // error for non-2xx statuses.
+// ErrDaemonNotRunning is returned when the control-plane unix socket does not
+// exist, meaning the mcpeach daemon is not running.
+var ErrDaemonNotRunning = errors.New("mcpeach daemon is not running")
+
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader, out any) error {
 	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
 	if err != nil {
@@ -232,6 +247,10 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, ou
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
+		// A dial failure on the unix socket means the daemon is not running.
+		if isSocketMissing(err) {
+			return ErrDaemonNotRunning
+		}
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()

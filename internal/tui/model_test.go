@@ -932,3 +932,19 @@ func TestImportExportNoClient(t *testing.T) {
 		t.Error("expected error when client is nil")
 	}
 }
+
+func TestDaemonNotRunningFriendlyMessage(t *testing.T) {
+	m := NewModel(&errClient{})
+	updated, _ := m.Update(serversLoadedMsg{err: client.ErrDaemonNotRunning})
+	if updated.(*Model).err != "no server is running — start it with: mcpeach serve" {
+		t.Errorf("err = %q, want friendly message", updated.(*Model).err)
+	}
+}
+
+func TestDaemonNotRunningDebugShowsRaw(t *testing.T) {
+	m := NewModelWithDebug(&errClient{})
+	updated, _ := m.Update(serversLoadedMsg{err: client.ErrDaemonNotRunning})
+	if !strings.Contains(updated.(*Model).err, "daemon is not running") {
+		t.Errorf("err = %q, want raw error in debug mode", updated.(*Model).err)
+	}
+}

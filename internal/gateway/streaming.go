@@ -6,6 +6,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/voxslopuli/mcpeach/internal/obs"
 )
 
 // StreamingServer is a single local streamable-HTTP MCP server that re-exposes
@@ -88,6 +89,7 @@ func (s *StreamingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	obs.Default().Info("mcp request", "method", r.Method, "path", r.URL.Path, "group", s.group)
 	s.http.ServeHTTP(w, r)
 }
 

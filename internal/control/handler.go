@@ -98,7 +98,11 @@ func (h *Handler) SetSyncTools(fn func()) {
 }
 
 // ServeHTTP implements http.Handler, dispatching to the control-plane routes.
+// It logs each request (method, path, status) via the shared obs logger.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h.log != nil {
+		h.log.Info("control request", "method", r.Method, "path", r.URL.Path)
+	}
 	h.mux.ServeHTTP(w, r)
 }
 
