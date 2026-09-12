@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mcpeach/mcpeach/internal/config"
-	"github.com/mcpeach/mcpeach/internal/mcpconfig"
+	"github.com/voxslopuli/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/mcpconfig"
 )
 
 // writeClaudeConfig writes a Claude Code MCP config file with the given servers.

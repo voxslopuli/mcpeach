@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mcpeach/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/config"
 )
 
 // fakeClient is a minimal MCPClient that records calls.

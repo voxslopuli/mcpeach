@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mcpeach/mcpeach/internal/client"
+	"github.com/voxslopuli/mcpeach/internal/client"
 )
 
 func TestRenderDetailProcessAndTools(t *testing.T) {

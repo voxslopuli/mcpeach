@@ -14,16 +14,16 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/spf13/cobra"
 
-	mcclient "github.com/mcpeach/mcpeach/internal/client"
-	"github.com/mcpeach/mcpeach/internal/config"
-	"github.com/mcpeach/mcpeach/internal/connect"
-	"github.com/mcpeach/mcpeach/internal/control"
-	"github.com/mcpeach/mcpeach/internal/gateway"
-	"github.com/mcpeach/mcpeach/internal/mcpconfig"
-	"github.com/mcpeach/mcpeach/internal/secrets"
-	"github.com/mcpeach/mcpeach/internal/server"
-	"github.com/mcpeach/mcpeach/internal/service"
-	"github.com/mcpeach/mcpeach/internal/tui"
+	mcclient "github.com/voxslopuli/mcpeach/internal/client"
+	"github.com/voxslopuli/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/connect"
+	"github.com/voxslopuli/mcpeach/internal/control"
+	"github.com/voxslopuli/mcpeach/internal/gateway"
+	"github.com/voxslopuli/mcpeach/internal/mcpconfig"
+	"github.com/voxslopuli/mcpeach/internal/secrets"
+	"github.com/voxslopuli/mcpeach/internal/server"
+	"github.com/voxslopuli/mcpeach/internal/service"
+	"github.com/voxslopuli/mcpeach/internal/tui"
 )
 
 // version is set at build time via -ldflags.

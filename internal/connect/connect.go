@@ -9,9 +9,9 @@ import (
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mcpeach/mcpeach/internal/config"
-	"github.com/mcpeach/mcpeach/internal/gateway"
-	"github.com/mcpeach/mcpeach/internal/secrets"
+	"github.com/voxslopuli/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/gateway"
+	"github.com/voxslopuli/mcpeach/internal/secrets"
 )
 
 // Connect establishes a client to the configured server and returns a

@@ -10,7 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/mcpeach/mcpeach/internal/client"
+	"github.com/voxslopuli/mcpeach/internal/client"
 )
 
 // addServerForm is the huh form for adding a new MCP server. The same form

@@ -8,7 +8,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mcpeach/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/config"
 )
 
 // setupTestGateway builds a gateway with one enabled server "a" and registers

@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mcpeach/mcpeach/internal/config"
-	"github.com/mcpeach/mcpeach/internal/mcpconfig"
+	"github.com/voxslopuli/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/mcpconfig"
 )
 
 // importServer handles POST /v0/import: parse a Claude Code MCP config file

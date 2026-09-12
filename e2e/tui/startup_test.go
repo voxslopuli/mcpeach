@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mcpeach/mcpeach/e2e/harness"
+	"github.com/voxslopuli/mcpeach/e2e/harness"
 )
 
 // binPath is the path to the mcpeach binary under test, built once per run.
@@ -19,7 +19,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	binPath = filepath.Join(dir, "mcpeach")
-	cmd := exec.Command("go", "build", "-o", binPath, "github.com/mcpeach/mcpeach/cmd/mcpeach")
+	cmd := exec.Command("go", "build", "-o", binPath, "github.com/voxslopuli/mcpeach/cmd/mcpeach")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

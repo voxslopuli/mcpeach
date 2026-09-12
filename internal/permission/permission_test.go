@@ -3,7 +3,7 @@ package permission
 import (
 	"testing"
 
-	"github.com/mcpeach/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/config"
 )
 
 func TestFilterAllows(t *testing.T) {

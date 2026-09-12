@@ -16,11 +16,11 @@ import (
 	"time"
 
 	"charm.land/bubbletea/v2"
-	"github.com/mcpeach/mcpeach/internal/client"
-	"github.com/mcpeach/mcpeach/internal/config"
-	"github.com/mcpeach/mcpeach/internal/service"
-	"github.com/mcpeach/mcpeach/internal/testutil"
-	"github.com/mcpeach/mcpeach/internal/tui"
+	"github.com/voxslopuli/mcpeach/internal/client"
+	"github.com/voxslopuli/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/service"
+	"github.com/voxslopuli/mcpeach/internal/testutil"
+	"github.com/voxslopuli/mcpeach/internal/tui"
 	"github.com/spf13/cobra"
 )
 

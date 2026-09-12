@@ -17,12 +17,12 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mcpeach/mcpeach/internal/config"
-	"github.com/mcpeach/mcpeach/internal/gateway"
-	"github.com/mcpeach/mcpeach/internal/obs"
-	"github.com/mcpeach/mcpeach/internal/secrets"
-	"github.com/mcpeach/mcpeach/internal/server"
-	"github.com/mcpeach/mcpeach/internal/testutil"
+	"github.com/voxslopuli/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/gateway"
+	"github.com/voxslopuli/mcpeach/internal/obs"
+	"github.com/voxslopuli/mcpeach/internal/secrets"
+	"github.com/voxslopuli/mcpeach/internal/server"
+	"github.com/voxslopuli/mcpeach/internal/testutil"
 )
 
 // newTestHandler builds a handler backed by a fresh manager + gateway.

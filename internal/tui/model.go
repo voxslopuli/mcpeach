@@ -11,7 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/mcpeach/mcpeach/internal/client"
+	"github.com/voxslopuli/mcpeach/internal/client"
 )
 
 // clientIface is the subset of the control-plane client the TUI needs.
