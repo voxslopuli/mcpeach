@@ -29,6 +29,14 @@ stats, MCP tool listing, permissions, secrets, and import/export.
 
 ## Install
 
+Install the CLI from the Go module proxy:
+
+```sh
+go install github.com/voxslopuli/mcpeach/cmd/mcpeach@latest
+```
+
+Or build from source:
+
 ```sh
 task build        # build into bin/
 task install      # go install the binary
