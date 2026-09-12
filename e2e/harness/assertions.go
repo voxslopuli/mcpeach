@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // AssertAPI asserts a control-plane response status and that the body contains
@@ -19,6 +20,32 @@ func AssertAPI(t *testing.T, d *Daemon, method, path, body string, wantStatus in
 			t.Errorf("%s %s: body missing %q: %s", method, path, sub, resp)
 		}
 	}
+}
+
+// AssertAPIRetry polls a control-plane endpoint until the response contains
+// all the wanted substrings (or a deadline), tolerating transient delays such
+// as a form submission settling under load.
+func AssertAPIRetry(t *testing.T, d *Daemon, method, path, body string, wantStatus int, wantSubstrings ...string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		status, resp := d.API(method, path, body)
+		if status == wantStatus {
+			ok := true
+			for _, sub := range wantSubstrings {
+				if !strings.Contains(resp, sub) {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				return
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	status, resp := d.API(method, path, body)
+	t.Fatalf("%s %s: never matched after retry (status %d, body %s)", method, path, status, resp)
 }
 
 // AssertNoSecret asserts that a string does not contain any of the given
