@@ -9,7 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/mcpeach/mcpeach/internal/client"
+	"github.com/voxslopuli/mcpeach/internal/client"
 )
 
 // fakeClient is a minimal control-plane client for tests.

@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mcpeach/mcpeach/internal/config"
-	"github.com/mcpeach/mcpeach/internal/metrics"
-	"github.com/mcpeach/mcpeach/internal/obs"
-	"github.com/mcpeach/mcpeach/internal/permission"
+	"github.com/voxslopuli/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/metrics"
+	"github.com/voxslopuli/mcpeach/internal/obs"
+	"github.com/voxslopuli/mcpeach/internal/permission"
 )
 
 // Canonicalize returns the canonical "<server>__<tool>" name.

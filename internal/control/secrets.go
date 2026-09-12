@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mcpeach/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/config"
 )
 
 // SecretSource describes one environment variable source for a server. The

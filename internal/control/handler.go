@@ -16,13 +16,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mcpeach/mcpeach/internal/config"
-	"github.com/mcpeach/mcpeach/internal/connect"
-	"github.com/mcpeach/mcpeach/internal/gateway"
-	"github.com/mcpeach/mcpeach/internal/obs"
-	"github.com/mcpeach/mcpeach/internal/processinfo"
-	"github.com/mcpeach/mcpeach/internal/secrets"
-	"github.com/mcpeach/mcpeach/internal/server"
+	"github.com/voxslopuli/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/connect"
+	"github.com/voxslopuli/mcpeach/internal/gateway"
+	"github.com/voxslopuli/mcpeach/internal/obs"
+	"github.com/voxslopuli/mcpeach/internal/processinfo"
+	"github.com/voxslopuli/mcpeach/internal/secrets"
+	"github.com/voxslopuli/mcpeach/internal/server"
 )
 
 // ServerInfo is a server's state as exposed by the API.

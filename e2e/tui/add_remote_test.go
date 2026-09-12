@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/mcpeach/mcpeach/e2e/harness"
+	"github.com/voxslopuli/mcpeach/e2e/harness"
 )
 
 // TestRemoteServerLifecycle verifies a streamable-HTTP remote server can be

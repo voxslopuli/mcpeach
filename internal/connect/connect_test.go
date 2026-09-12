@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mcpeach/mcpeach/internal/config"
-	"github.com/mcpeach/mcpeach/internal/testutil"
+	"github.com/voxslopuli/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/testutil"
 )
 
 // fakeCaller is a minimal ToolCaller for tests.

@@ -8,8 +8,8 @@ import (
 	"os"
 	"sort"
 
-	"github.com/mcpeach/mcpeach/internal/config"
-	"github.com/mcpeach/mcpeach/internal/secrets"
+	"github.com/voxslopuli/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/secrets"
 )
 
 // claudeServer is one entry in a Claude Code mcpServers map.

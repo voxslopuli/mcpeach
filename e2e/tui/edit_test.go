@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/mcpeach/mcpeach/e2e/harness"
+	"github.com/voxslopuli/mcpeach/e2e/harness"
 )
 
 // TestEditServer verifies the 'e' edit flow on the management screen updates a

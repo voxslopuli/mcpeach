@@ -1,4 +1,4 @@
-module github.com/mcpeach/mcpeach
+module github.com/voxslopuli/mcpeach
 
 go 1.27.1
 

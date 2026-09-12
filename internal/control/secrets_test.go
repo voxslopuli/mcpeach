@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mcpeach/mcpeach/internal/config"
-	"github.com/mcpeach/mcpeach/internal/gateway"
-	"github.com/mcpeach/mcpeach/internal/secrets"
-	"github.com/mcpeach/mcpeach/internal/server"
+	"github.com/voxslopuli/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/gateway"
+	"github.com/voxslopuli/mcpeach/internal/secrets"
+	"github.com/voxslopuli/mcpeach/internal/server"
 )
 
 type memStore struct {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mcpeach/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/config"
 )
 
 func TestImport(t *testing.T) {

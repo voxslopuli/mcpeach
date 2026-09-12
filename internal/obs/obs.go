@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	charmlog "github.com/charmbracelet/log"
-	"github.com/mcpeach/mcpeach/internal/logs"
+	"github.com/voxslopuli/mcpeach/internal/logs"
 )
 
 // ringCapacity is the number of log lines retained in memory.

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mcpeach/mcpeach/internal/testutil"
+	"github.com/voxslopuli/mcpeach/internal/testutil"
 )
 
 // buildFakeServer compiles the testdata fake MCP server binary.

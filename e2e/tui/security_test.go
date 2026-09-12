@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/mcpeach/mcpeach/e2e/harness"
+	"github.com/voxslopuli/mcpeach/e2e/harness"
 )
 
 // TestSecurityNoSecretLeak verifies that a resolved secret value (from an

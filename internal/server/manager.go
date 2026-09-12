@@ -8,8 +8,8 @@ import (
 	"os/exec"
 	"sync"
 
-	"github.com/mcpeach/mcpeach/internal/logs"
-	"github.com/mcpeach/mcpeach/internal/secrets"
+	"github.com/voxslopuli/mcpeach/internal/logs"
+	"github.com/voxslopuli/mcpeach/internal/secrets"
 )
 
 // logCapacity is the number of log lines retained per server.

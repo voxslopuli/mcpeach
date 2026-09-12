@@ -11,14 +11,14 @@ import (
 // returns its path. The binary is built once per test process.
 func BuildFakeMCP(t *testing.T) string {
 	t.Helper()
-	return buildFixture(t, "fake-mcp", "github.com/mcpeach/mcpeach/testdata/fake-mcp")
+	return buildFixture(t, "fake-mcp", "github.com/voxslopuli/mcpeach/testdata/fake-mcp")
 }
 
 // BuildStreamable builds the streamable fixture binary into a temp dir and
 // returns its path.
 func BuildStreamable(t *testing.T) string {
 	t.Helper()
-	return buildFixture(t, "streamable", "github.com/mcpeach/mcpeach/e2e/fixtures/streamable")
+	return buildFixture(t, "streamable", "github.com/voxslopuli/mcpeach/e2e/fixtures/streamable")
 }
 
 // buildFixture builds a fixture binary into a shared temp dir.

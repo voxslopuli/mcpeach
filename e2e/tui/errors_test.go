@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/mcpeach/mcpeach/e2e/harness"
+	"github.com/voxslopuli/mcpeach/e2e/harness"
 )
 
 // TestErrorsDaemonUnavailable verifies the TUI surfaces a connection error

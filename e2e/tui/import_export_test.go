@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mcpeach/mcpeach/e2e/harness"
+	"github.com/voxslopuli/mcpeach/e2e/harness"
 )
 
 // TestImportExport verifies the daemon-owned import/export workflow with an

@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/mcpeach/mcpeach/e2e/harness"
+	"github.com/voxslopuli/mcpeach/e2e/harness"
 )
 
 // TestAddStdioServer verifies the 'n' new-server form adds a stdio server.

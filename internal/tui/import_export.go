@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
-	"github.com/mcpeach/mcpeach/internal/client"
+	"github.com/voxslopuli/mcpeach/internal/client"
 )
 
 // importExportMode distinguishes the two directions of the shared form.

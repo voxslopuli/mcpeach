@@ -4,7 +4,7 @@ package permission
 import (
 	"sort"
 
-	"github.com/mcpeach/mcpeach/internal/config"
+	"github.com/voxslopuli/mcpeach/internal/config"
 )
 
 // Filter is an allow/block filter over canonical "<server>__<tool>" names.
