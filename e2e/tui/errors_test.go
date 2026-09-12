@@ -6,8 +6,8 @@ import (
 	"github.com/voxslopuli/mcpeach/e2e/harness"
 )
 
-// TestErrorsDaemonUnavailable verifies the TUI surfaces a connection error
-// when the daemon is not running, rather than silently showing an empty list.
+// TestErrorsDaemonUnavailable verifies the TUI shows a friendly message when
+// the daemon is not running, rather than the raw dial error or an empty list.
 func TestErrorsDaemonUnavailable(t *testing.T) {
 	fx := harness.NewFixture(t)
 	// No daemon started; the control socket does not exist.
@@ -15,13 +15,11 @@ func TestErrorsDaemonUnavailable(t *testing.T) {
 	defer s.Close()
 	harness.CollectArtifacts(t, s, nil)
 
-	// The TUI should render something (title) and surface an error, not an
-	// empty list with no feedback.
+	// The TUI renders the title and the friendly daemon-not-running message.
 	s.Expect("mcpeach")
-	text := s.Text()
-	if text == "" {
-		t.Fatal("TUI produced no output when daemon unavailable")
-	}
+	s.Expect("no server is running")
+	// The raw dial error must not leak into the UI.
+	s.ExpectGone("dial unix")
 }
 
 // TestErrorsChildStartFailure verifies that a server whose command fails to

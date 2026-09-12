@@ -56,7 +56,8 @@ func TestTuiAliasLaunchesTUI(t *testing.T) {
 }
 
 // TestDaemonUnavailableShowsError verifies that when the daemon is not
-// running, the TUI shows a deliberate error rather than an empty list.
+// running, the TUI shows a friendly message rather than an empty list or the
+// raw dial error.
 func TestDaemonUnavailableShowsError(t *testing.T) {
 	fx := harness.NewFixture(t)
 	// No daemon started; the control socket does not exist.
@@ -64,10 +65,8 @@ func TestDaemonUnavailableShowsError(t *testing.T) {
 	defer s.Close()
 	harness.CollectArtifacts(t, s, nil)
 
-	// The TUI should surface a connection error, not silently show an empty
-	// list. The exact wording may vary; assert on the error being visible.
-	text := s.Text()
-	if text == "" {
-		t.Fatal("TUI produced no output when daemon unavailable")
-	}
+	// The TUI shows the friendly daemon-not-running message.
+	s.Expect("no server is running")
+	// The raw dial error must not leak into the UI.
+	s.ExpectGone("dial unix")
 }
