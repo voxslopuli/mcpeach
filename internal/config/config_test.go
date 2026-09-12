@@ -9,8 +9,8 @@ import (
 
 func TestDefault(t *testing.T) {
 	c := Default()
-	if c.Gateway.Addr != "127.0.0.1:8080" {
-		t.Errorf("Default gateway addr = %q, want 127.0.0.1:8080", c.Gateway.Addr)
+	if c.Gateway.Addr != "127.0.0.1:11585" {
+		t.Errorf("Default gateway addr = %q, want 127.0.0.1:11585", c.Gateway.Addr)
 	}
 	if c.Gateway.Name != "mcpeach" {
 		t.Errorf("Default gateway name = %q, want mcpeach", c.Gateway.Name)

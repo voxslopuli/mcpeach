@@ -72,7 +72,7 @@ One binary with subcommands (`mcpeach serve`, `mcpeach tui`, `mcpeach add …`) 
 
 ```yaml
 gateway:
-  addr: "127.0.0.1:8080"        # MCP streamable-HTTP endpoint
+  addr: "127.0.0.1:11585"        # MCP streamable-HTTP endpoint
   name: "mcpeach"
   version: "0.1.0"
 llm:                            # tool-finder + description enrichment
@@ -177,7 +177,7 @@ final secret without the config file ever holding it in plaintext.
 The gateway is mounted as **one** local `NewStreamableHTTPServer` (mcp-go) that
 re-exposes every configured server — stdio subprocesses, remote SSE, and remote
 streamable-HTTP — behind a single streamable-HTTP endpoint. Clients (Claude,
-Cursor, agents) connect to `http://127.0.0.1:8080/mcp` (and per-group
+Cursor, agents) connect to `http://127.0.0.1:11585/mcp` (and per-group
 `/v0/groups/{name}/mcp`) and see one unified MCP server. The unix socket is
 **only** the control plane (TUI↔daemon); it is not the client-facing MCP
 interface.

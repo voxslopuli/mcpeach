@@ -57,7 +57,7 @@ In the TUI: press `n` to add a server, then point a client at the gateway URL.
 Point any MCP client at the gateway endpoint:
 
 ```text
-http://127.0.0.1:8080/mcp
+http://127.0.0.1:11585/mcp
 ```
 
 The daemon also exposes per-group endpoints at `/v0/groups/{name}/mcp`.
@@ -227,7 +227,7 @@ TUI is a thin client over the control-plane unix-socket API.
 Claude / Cursor / agents
           │
           ▼
-http://127.0.0.1:8080/mcp
+http://127.0.0.1:11585/mcp
           │
           ▼
       mcpeach daemon
