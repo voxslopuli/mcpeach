@@ -29,6 +29,9 @@ import (
 // version is set at build time via -ldflags.
 var version = "dev"
 
+// debug enables verbose output and raw error messages (set via --debug).
+var debug bool
+
 // #pragma: no cover — entrypoint; calling it would os.Exit the test process
 func main() {
 	root := newRootCommand()
@@ -55,9 +58,10 @@ single streamable-HTTP endpoint, permissions tools, and exposes curated
 tool groups to clients.`,
 		Version: version,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTUI()
+			return runTUI(debug)
 		},
 	}
+	root.PersistentFlags().BoolVar(&debug, "debug", false, "show raw errors and verbose output")
 	root.AddCommand(serveCmd(), tuiCmd(), importCmd(), exportCmd(), installCmd(), uninstallCmd(), statusCmd())
 	return root
 }
@@ -173,6 +177,9 @@ func runDaemon(ctx context.Context) error {
 		<-ctx.Done()
 		_ = srv.Close()
 	}()
+	// Announce readiness so `mcpeach serve` gives the user a clear signal.
+	fmt.Printf("mcpeach: control plane listening on %s\n", config.SocketPath())
+	fmt.Printf("mcpeach: MCP gateway listening on %s\n", cfg.Gateway.Addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
@@ -202,7 +209,7 @@ func tuiCmd() *cobra.Command {
 		Use:   "tui",
 		Short: "Launch the mcpeach TUI (alias: run mcpeach with no arguments)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTUI()
+			return runTUI(debug)
 		},
 	}
 }
@@ -218,10 +225,15 @@ var tuiProgramFactory = func(m *tui.Model) tuiRunner {
 }
 
 // runTUI builds and runs the TUI program. Shared by the root command and the
-// `tui` alias.
-func runTUI() error {
+// `tui` alias. debug shows raw errors instead of friendly messages.
+func runTUI(debug bool) error {
 	c := mcclient.NewUnix(config.SocketPath())
-	m := tui.NewModel(c)
+	var m *tui.Model
+	if debug {
+		m = tui.NewModelWithDebug(c)
+	} else {
+		m = tui.NewModel(c)
+	}
 	_, err := tuiProgramFactory(m).Run()
 	return err
 }

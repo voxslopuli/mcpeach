@@ -5,6 +5,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -53,6 +54,7 @@ type Model struct {
 	form          *addServerForm
 	huhForm       *huh.Form
 	err           string
+	debug         bool   // show raw errors instead of friendly messages
 	status        string // transient informational message (not an error)
 	detailName    string
 	detail        *client.ServerDetail
@@ -65,6 +67,12 @@ type Model struct {
 // NewModel builds a TUI model backed by the given control-plane client.
 func NewModel(c clientIface) *Model {
 	return &Model{client: c}
+}
+
+// NewModelWithDebug returns a Model that shows raw errors instead of friendly
+// messages (used by `mcpeach --debug`).
+func NewModelWithDebug(c clientIface) *Model {
+	return &Model{client: c, debug: true}
 }
 
 // Init returns the initial command (load servers).
@@ -306,7 +314,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadServersCmd()
 	case serversLoadedMsg:
 		if msg.err != nil {
-			m.err = msg.err.Error()
+			if errors.Is(msg.err, client.ErrDaemonNotRunning) && !m.debug {
+				m.err = "no server is running — start it with: mcpeach serve"
+			} else {
+				m.err = msg.err.Error()
+			}
 			return m, nil
 		}
 		m.err = ""

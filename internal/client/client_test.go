@@ -398,3 +398,15 @@ func TestImportExportClient(t *testing.T) {
 		t.Errorf("export missing server: %s", b)
 	}
 }
+
+func TestListServersDaemonNotRunning(t *testing.T) {
+	// A short socket path that does not exist (unix socket paths must stay
+	// under the ~108-byte limit, so use /tmp not t.TempDir()).
+	sock := filepath.Join(os.TempDir(), "mcpeach-nonexistent.sock")
+	_ = os.Remove(sock)
+	c := NewUnix(sock)
+	_, err := c.ListServers(context.Background())
+	if !errors.Is(err, ErrDaemonNotRunning) {
+		t.Errorf("err = %v, want ErrDaemonNotRunning", err)
+	}
+}
