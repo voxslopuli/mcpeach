@@ -227,3 +227,14 @@ func TestProgramLogsErrors(t *testing.T) {
 		t.Fatal("log callback was not called with the run error")
 	}
 }
+
+func TestStop(t *testing.T) {
+	fs := &fakeSvc{}
+	m := &Manager{svc: fs}
+	if err := m.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if !fs.stopped {
+		t.Error("Stop did not call svc.Stop")
+	}
+}

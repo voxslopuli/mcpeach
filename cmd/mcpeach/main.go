@@ -62,7 +62,7 @@ tool groups to clients.`,
 		},
 	}
 	root.PersistentFlags().BoolVar(&debug, "debug", false, "show raw errors and verbose output")
-	root.AddCommand(serveCmd(), tuiCmd(), importCmd(), exportCmd(), installCmd(), uninstallCmd(), statusCmd())
+	root.AddCommand(serveCmd(), tuiCmd(), importCmd(), exportCmd(), installCmd(), uninstallCmd(), statusCmd(), stopCmd())
 	return root
 }
 
@@ -329,10 +329,29 @@ func statusCmd() *cobra.Command {
 	}
 }
 
+func stopCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "stop",
+		Short: "Stop the mcpeach background service",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			m, err := serviceManagerFactory()
+			if err != nil {
+				return err
+			}
+			if err := m.Stop(); err != nil {
+				return err
+			}
+			fmt.Println("mcpeach service stopped")
+			return nil
+		},
+	}
+}
+
 // serviceManager is the subset of service.Manager the CLI commands use.
 type serviceManager interface {
 	Install() error
 	Uninstall() error
+	Stop() error
 	Status() (service.Status, error)
 }
 

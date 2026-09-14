@@ -58,6 +58,11 @@ func (m *Manager) Uninstall() error {
 	return m.svc.Uninstall()
 }
 
+// Stop stops the running service.
+func (m *Manager) Stop() error {
+	return m.svc.Stop()
+}
+
 // Status returns the current service status.
 func (m *Manager) Status() (Status, error) {
 	return m.svc.Status()
