@@ -16,12 +16,12 @@ import (
 	"time"
 
 	"charm.land/bubbletea/v2"
+	"github.com/spf13/cobra"
 	"github.com/voxslopuli/mcpeach/internal/client"
 	"github.com/voxslopuli/mcpeach/internal/config"
 	"github.com/voxslopuli/mcpeach/internal/service"
 	"github.com/voxslopuli/mcpeach/internal/testutil"
 	"github.com/voxslopuli/mcpeach/internal/tui"
-	"github.com/spf13/cobra"
 )
 
 // fakeTuiRunner satisfies tuiRunner without running a real TUI.
@@ -216,11 +216,13 @@ func TestNewServiceManager(t *testing.T) {
 type fakeManager struct {
 	installed   bool
 	uninstalled bool
+	stopped     bool
 	status      service.Status
 }
 
 func (f *fakeManager) Install() error                  { f.installed = true; return nil }
 func (f *fakeManager) Uninstall() error                { f.uninstalled = true; return nil }
+func (f *fakeManager) Stop() error                     { f.stopped = true; return nil }
 func (f *fakeManager) Status() (service.Status, error) { return f.status, nil }
 func (f *fakeManager) Run() error                      { return nil }
 
@@ -806,5 +808,19 @@ func TestExecuteRoot(t *testing.T) {
 	root.SetArgs([]string{"--help"})
 	if err := executeRoot(root); err != nil {
 		t.Fatalf("executeRoot: %v", err)
+	}
+}
+
+func TestStopCmdRunE(t *testing.T) {
+	fm := &fakeManager{}
+	serviceManagerFactory = func() (serviceManager, error) { return fm, nil }
+	defer func() { serviceManagerFactory = newServiceManager }()
+
+	cmd := stopCmd()
+	if err := cmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("stop RunE: %v", err)
+	}
+	if !fm.stopped {
+		t.Error("stop did not call Stop")
 	}
 }
